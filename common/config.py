@@ -11,9 +11,14 @@ class Settings(BaseSettings):
     
     # [추가된 부분] 모의투자 전용 서버 주소 (URL)
     # 실전투자 때는 .env에서 이 값을 덮어쓰면 됩니다.
-    KIS_BASE_URL: str = "https://openapivts.koreainvestment.com:29443"
-    KIS_WEBSOCKET_URL: str = "ws://ops.koreainvestment.com:21000"
 
+    # 모의
+    # KIS_BASE_URL: str = "https://openapivts.koreainvestment.com:29443"
+    # KIS_WEBSOCKET_URL: str = "ws://ops.koreainvestment.com:31000"
+
+    # 실전
+    KIS_BASE_URL: str = "https://openapi.koreainvestment.com:9443"
+    KIS_WEBSOCKET_URL: str = "ws://ops.koreainvestment.com:21000"
     # =================================
     # 2. Redis 설정
     # =================================
@@ -27,9 +32,15 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
 
+    # [추가] 네이버 API 설정
+    NAVER_CLIENT_ID: str = ""
+    NAVER_CLIENT_SECRET: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore" 
+
+    
 
 settings = Settings()

@@ -11,7 +11,7 @@ async def run_vi_watcher(approval_key):
     while True:
         try:
             print(f"👮 [VI팀] 감시 시작합니다...")
-            async with websockets.connect(uri) as ws:
+            async with websockets.connect(uri, ping_interval=None) as ws:
                 # 구독 요청
                 body = {
                     "header": {"approval_key": approval_key, "custtype": "P", "tr_type": "1", "content-type": "utf-8"},

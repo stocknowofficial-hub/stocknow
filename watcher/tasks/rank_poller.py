@@ -7,88 +7,67 @@ from common.redis_client import redis_client
 
 async def run_rank_poller(access_token):
     """
-    지정된 시간에 '상승률 Top N'과 '하락률 Top N'을 조회하여 전송
+    [대장주 감시] 30분마다 주요 종목(시총 상위+주도주) 시세 리포트 전송
     """
-    
-    # ==========================================
-    # [설정] 여기서 숫자만 바꾸면 개수가 변합니다!
-    TOP_N = 5 
-    # ==========================================
+    # 감시할 종목 (삼성전자, 하이닉스, 엔솔, 현대차, 에코프로)
+    TARGET_CODES = ["005930", "000660", "373220", "005380", "086520"]
 
-    # 알림 보낼 시간 (시:분)
-    TARGET_TIMES = ["09:00", "10:00", "13:00", "15:20"] 
-    last_sent_time = ""
-
-    # KIS API URL (등락률 순위)
-    # *주의: 모의투자(VTS)는 이 URL이 지원 안 될 수도 있습니다. 
-    # 만약 에러나면 실전투자 URL로 바꾸거나, 모의투자용 거래량 순위로 임시 복귀해야 합니다.
-    url = f"{settings.KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation"
+    # 주식현재가 시세 URL
+    url = f"{settings.KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price"
     
     headers = {
         "content-type": "application/json; utf-8",
         "authorization": f"Bearer {access_token}",
         "appkey": settings.KIS_APP_KEY,
         "appsecret": settings.KIS_APP_SECRET,
-        "tr_id": "FHPST01700000" # 등락률 순위 TR ID
-    }
-    
-    # 공통 파라미터 (일단 세팅해둠)
-    base_params = {
-        "fid_cond_mrkt_div_code": "J", # J: 주식
-        "fid_cond_scr_div_code": "20170",
-        "fid_input_iscd": "0000", # 전체
-        "fid_rank_sort_cls_code": "0", # 0:상승, 1:하락 (아래에서 동적으로 변경)
-        "fid_input_cnt_1": str(TOP_N), # 조회 개수
-        "fid_prc_cls_code": "0",
-        "fid_input_price_1": "",
-        "fid_input_price_2": "",
-        "fid_vol_cnt": "",
-        "fid_trgt_cls_code": "0"
+        "tr_id": "FHKST01010100"
     }
 
-    print(f"📊 [랭킹팀] 대기 중... (상승/하락 각각 {TOP_N}개, 시간: {TARGET_TIMES})")
+    print(f"📊 [폴링팀] 1분마다 시계 확인 중... (매시 0분, 30분에 발송)")
+    
+    # 중복 발송 방지용
+    last_sent_minute = -1 
 
     while True:
         try:
             now = datetime.now()
+            current_minute = now.minute
             current_time_str = now.strftime("%H:%M")
 
-            # 목표 시간이고, 아직 안 보냈다면 실행
-            if current_time_str in TARGET_TIMES and current_time_str != last_sent_time:
-                print(f"⏰ [랭킹팀] {current_time_str} 정기 리포트 생성 시작!")
+            # ==========================================================
+            # [조건] 1. 지금이 0분 or 30분인가?
+            #        2. 이번 분(minute)에 아직 안 보냈는가?
+            # ==========================================================
+            if (current_minute % 30 == 0) and (current_minute != last_sent_minute):
                 
+                print(f"⏰ [폴링팀] {current_time_str} 리포트 생성 시작!")
                 report_data = []
 
-                # --- 1. 상승률(Rising) 조회 ---
-                base_params["fid_rank_sort_cls_code"] = "0" # 0 = 상승
-                res_rise = requests.get(url, headers=headers, params=base_params)
-                
-                if res_rise.status_code == 200:
-                    items = res_rise.json().get('output', []) or []
-                    for item in items[:TOP_N]:
-                        name = item.get('hts_kor_isnm', '-')
-                        rate = item.get('prdy_ctrt', '0')
-                        report_data.append(f"📈 {name} (+{rate}%)")
-                else:
-                    print(f"⚠️ 상승률 조회 실패: {res_rise.status_code}")
-                
-                # API 연속 호출 시 0.5초 매너 대기 (오류 방지)
-                await asyncio.sleep(0.5)
+                for code in TARGET_CODES:
+                    params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code}
+                    res = requests.get(url, headers=headers, params=params)
+                    
+                    if res.status_code == 200:
+                        output = res.json().get('output')
+                        if output:
+                            # 종목명 매핑
+                            name_map = {
+                                "005930": "삼성전자", "000660": "SK하이닉스", 
+                                "373220": "LG엔솔", "005380": "현대차", 
+                                "086520": "에코프로"
+                            }
+                            name = name_map.get(code, code)
+                            price = int(output.get('stck_prpr', '0'))
+                            rate = float(output.get('prdy_ctrt', '0.0'))
+                            
+                            emoji = "📈" if rate > 0 else "📉"
+                            if rate == 0: emoji = "➖"
 
-                # --- 2. 하락률(Falling) 조회 ---
-                base_params["fid_rank_sort_cls_code"] = "1" # 1 = 하락
-                res_fall = requests.get(url, headers=headers, params=base_params)
-                
-                if res_fall.status_code == 200:
-                    items = res_fall.json().get('output', []) or []
-                    for item in items[:TOP_N]:
-                        name = item.get('hts_kor_isnm', '-')
-                        rate = item.get('prdy_ctrt', '0')
-                        report_data.append(f"📉 {name} ({rate}%)")
-                else:
-                    print(f"⚠️ 하락률 조회 실패: {res_fall.status_code}")
+                            # 가격 천단위 콤마
+                            report_data.append(f"{emoji} {name} {price:,}원 ({rate}%)")
+                    
+                    await asyncio.sleep(0.2) # API 매너 호출
 
-                # --- 3. Redis 전송 ---
                 if report_data:
                     payload = {
                         "type": "RANKING",
@@ -96,12 +75,13 @@ async def run_rank_poller(access_token):
                         "data": report_data
                     }
                     await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
-                    print(f"🚀 [전송완료] 상승/하락 랭킹 리포트 발송 완료!")
-                    last_sent_time = current_time_str
-                else:
-                    print("💤 데이터가 없어서 전송하지 않았습니다.")
+                    print(f"🚀 [전송완료] {current_time_str} 리포트 발송 완료!")
+                    
+                    # [중요] '이번 분'에는 보냈다고 기록 (중복 방지)
+                    last_sent_minute = current_minute
 
         except Exception as e:
-            print(f"❌ [랭킹팀] 에러: {e}")
+            print(f"❌ [폴링팀] 에러: {e}")
         
-        await asyncio.sleep(60) # 1분 대기
+        # [중요] 30분을 자면 안 됩니다! 1분만 자고 일어나서 시계를 봐야 합니다.
+        await asyncio.sleep(60)

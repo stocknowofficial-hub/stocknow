@@ -18,8 +18,7 @@ async def run_condition_watcher(approval_key):
                 await asyncio.sleep(10)
                 continue
 
-            async with websockets.connect(uri) as ws:
-                # 구독 요청
+            async with websockets.connect(uri, ping_interval=None) as ws:                # 구독 요청
                 body = {
                     "header": {
                         "approval_key": approval_key,
