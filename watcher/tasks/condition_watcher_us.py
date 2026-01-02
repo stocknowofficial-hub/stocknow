@@ -3,24 +3,17 @@ import ujson
 import requests
 import os
 from datetime import datetime
-import pytz # [필수] pip install pytz
+import pytz 
 from common.config import settings
 from common.redis_client import redis_client
 from watcher.kis_auth import get_access_token
 
-# =========================================================
-# 👇 [설정] 폴링 간격 (60초)
-POLLING_INTERVAL = 60 
+POLLING_INTERVAL = 60 #폴링간격
 
-# 👇 [설정] 시가총액 조건 (단위: 천 달러 USD)
-# 500조 원 ≈ 3,500억 달러 = 350,000,000
-MIN_MARKET_CAP = "350000000" 
-MAX_MARKET_CAP = "999999999999"
+MIN_MARKET_CAP = "350000000" #3,500억 달러
+MAX_MARKET_CAP = "999999999999" 
 
-# 👇 [설정] 감시할 거래소
-TARGET_EXCHANGES = ["NAS", "NYS", "AMS"] 
-# =========================================================
-
+TARGET_EXCHANGES = ["NAS", "NYS", "AMS"] #거래소
 PREV_US_STOCKS = set()
 
 def is_us_market_open():
@@ -30,17 +23,13 @@ def is_us_market_open():
     - 주말(토, 일) 제외
     """
     try:
-        # 1. 뉴욕 시간대 설정
-        ny_tz = pytz.timezone('America/New_York')
+        ny_tz = pytz.timezone('America/New_York') # 뉴욕시간
         now_ny = datetime.now(ny_tz)
         
-        # 2. 주말 체크 (0:월 ~ 4:금, 5:토, 6:일)
-        if now_ny.weekday() >= 5:
+        if now_ny.weekday() >= 5: # 5,6일 주말
             return False, "주말 휴장"
 
-        # 3. 시간 체크 (04시 ~ 20시)
-        # int(HHMM) 형태로 변환하여 비교
-        current_time_int = now_ny.hour * 100 + now_ny.minute
+        current_time_int = now_ny.hour * 100 + now_ny.minute # int(HHMM) 형태로 변환하여 비교
         
         start_time = 400   # 04:00 AM (프리장 시작)
         end_time = 2000    # 08:00 PM (애프터마켓 종료)
@@ -52,14 +41,10 @@ def is_us_market_open():
             
     except Exception as e:
         print(f"⚠️ [시간 체크 오류] {e}")
-        # 에러 나면 일단 안전하게 False 리턴하거나, 
-        # API 호출 아까우면 False, 중요하면 True 등 정책 결정
         return True, "시간 체크 실패(Pass)" 
 
 def fetch_us_stocks_by_condition(token, exchange_code):
-    """
-    [REST API] 해외주식 조건검색 요청 (시총 조건만 사용)
-    """
+    # [REST API] 해외주식 조건검색 요청 (시총 조건만 사용)
     url = "https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/inquire-search"
     
     headers = {
@@ -112,16 +97,10 @@ async def run_condition_watcher_us(approval_key, access_token=None):
             
             if not is_open:
                 # 장 마감 시간이면 API 호출 안 하고 대기
-                # 로그가 너무 많이 찍히지 않게, 1시간에 한 번 정도만 찍거나
                 # 여기서는 5분(300초)마다 체크하도록 설정
-                # print(f"💤 [US 휴식] {msg} - 5분 뒤 다시 확인") 
                 await asyncio.sleep(300) 
                 continue
 
-            # ==========================================
-            # 🚀 장 운영 시간일 때만 아래 로직 실행
-            # ==========================================
-            
             current_cycle_stocks = set()
             found_list = []
 
@@ -145,7 +124,7 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                             # 🚨 [핵심 필터] 등락률 절대값이 2.0 이상인 경우만 통과
                             try:
                                 rate_val = float(rate)
-                                if abs(rate_val) < 2.0:
+                                if abs(rate_val) < 1.0:
                                     continue 
                             except:
                                 continue
@@ -177,7 +156,6 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                     print("="* 60)
                 else:
                     # 장 중인데 조건 만족하는 게 없을 때
-                    # print("🌊 [스캔 중] 현재 ±2% 이상 움직이는 500조급 종목 없음.")
                     pass
 
             # 2. 신규 진입 알림

@@ -15,7 +15,7 @@ async def run_rank_poller(access_token):
     # 10 -> 10분, 20분, 30분...
     # 30 -> 매시 0분, 30분
     # 60 -> 매시 정각(0분)
-    SEND_INTERVAL_MINUTES = 10 
+    SEND_INTERVAL_MINUTES = 60
     # ====================================================
 
     # 감시할 종목 (삼성전자, 하이닉스, LG엔솔, 현대차, 에코프로)

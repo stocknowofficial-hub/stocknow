@@ -23,7 +23,7 @@ async def run_us_rank_poller(access_token):
     # [설정] 몆 분마다 알림을 보낼까요? (숫자만 바꾸세요!)
     # 예: 10 -> 10분, 20분, 30분... 에 발송
     # 예: 60 -> 매시 정각(0분)에만 발송
-    SEND_INTERVAL_MINUTES = 10 
+    SEND_INTERVAL_MINUTES = 60 
     # ====================================================
 
     # 감시할 종목
