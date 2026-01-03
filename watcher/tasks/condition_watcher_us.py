@@ -124,7 +124,7 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                             # 🚨 [핵심 필터] 등락률 절대값이 2.0 이상인 경우만 통과
                             try:
                                 rate_val = float(rate)
-                                if abs(rate_val) < 1.0:
+                                if abs(rate_val) < 2.0:
                                     continue 
                             except:
                                 continue

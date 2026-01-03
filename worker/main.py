@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/..')
 
 from common.config import settings
 from worker.modules.news_crawler import NewsCrawler
-
+from worker.modules.news_worker import NewsWorker
 
 raw_ids = settings.TELEGRAM_CHAT_ID.split(',')
 RECIPIENT_LIST = [int(x.strip()) for x in raw_ids if x.strip()]
@@ -128,8 +128,10 @@ async def send_message_to_user(bot, message_data):
 # ==============================================================================
 async def run_news_crawler():
     # 이미 news_crawler.py 안에 run() 메소드가 무한 루프로 구현되어 있음
-    crawler = NewsCrawler()
-    await crawler.run()
+    # crawler = NewsCrawler()
+    # await crawler.run()
+    worker = NewsWorker()
+    await worker.run()
 
 # ==============================================================================
 # 🚀 메인 실행기 (통합)
