@@ -1,106 +1,116 @@
 import asyncio
-import requests
 import ujson
 from datetime import datetime
 from common.config import settings
 from common.redis_client import redis_client
+from watcher.kis_auth import get_access_token
 
-async def run_rank_poller(access_token):
+# ✅ 공통 함수 임포트
+from watcher.utils.definitions import check_is_holiday
+
+# ====================================================
+# [설정] 브리핑 발송 시간표 (HHMM)
+# ====================================================
+SCHEDULE_TIMES = ["0840", "1200", "1600"]
+
+async def run_rank_poller(access_token=None):
     """
-    [국내 폴링팀] 대장주/관심주 시세 리포트 전송 (주기 변경 가능)
+    [KR 시황 스케줄러] 
     """
+    print(f"⏰ [KR-Scheduler] 시황 브리핑 스케줄러 가동 {SCHEDULE_TIMES}")
     
-    # ====================================================
-    # [설정] 몇 분마다 알림을 보낼까요? (숫자만 바꾸세요!)
-    # 10 -> 10분, 20분, 30분...
-    # 30 -> 매시 0분, 30분
-    # 60 -> 매시 정각(0분)
-    SEND_INTERVAL_MINUTES = 60
-    # ====================================================
-
-    # 감시할 종목 (삼성전자, 하이닉스, LG엔솔, 현대차, 에코프로)
-    TARGET_CODES = ["005930", "000660", "373220", "005380", "086520"]
-
-    # 주식현재가 시세 URL (국내)
-    url = f"{settings.KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price"
-    
-    headers = {
-        "content-type": "application/json; utf-8",
-        "authorization": f"Bearer {access_token}",
-        "appkey": settings.KIS_APP_KEY,
-        "appsecret": settings.KIS_APP_SECRET,
-        "tr_id": "FHKST01010100"
-    }
-
-    print(f"📊 [국내 폴링팀] 대장주 모니터링 시작! ({SEND_INTERVAL_MINUTES}분 간격)(08:00 ~ 16:00 가동)")
-    # 중복 발송 방지용
-    last_sent_minute = -1 
+    current_token = access_token
+    sent_times = set()
+    last_date = datetime.now().strftime("%Y%m%d") # ✅ 마지막 실행 날짜 기록
 
     while True:
         try:
             now = datetime.now()
-            current_hour = now.hour
-            current_minute = now.minute
-            current_time_str = now.strftime("%H:%M")
-            if 8 <= current_hour < 16:
-                # [핵심 로직] 설정한 간격에 맞는지 확인
-                is_time_to_send = (current_minute % SEND_INTERVAL_MINUTES == 0)
+            today_str = now.strftime("%Y%m%d")
+            current_time = now.strftime("%H%M")
+            
+            # -----------------------------------------------------------
+            # ✅ [보완] 날짜가 바뀌면 발송 기록 초기화 (자정 스킵 문제 해결)
+            # -----------------------------------------------------------
+            if today_str != last_date:
+                print(f"📅 [KR-Scheduler] 날짜 변경 감지 ({last_date} -> {today_str}). 발송 기록 초기화.")
+                sent_times.clear()
+                last_date = today_str
+            # -----------------------------------------------------------
 
-                # 시간 맞고 + 이번 분에 아직 안 보냈으면 -> 발송
-                if is_time_to_send and (current_minute != last_sent_minute):
-                    
-                    print(f"⏰ [국내 폴링팀] {current_time_str} 리포트 생성 시작!")
-                    report_data = []
+            # 1. 주말 체크 (토/일)
+            if now.weekday() >= 5:
+                # 주말엔 1시간씩 잠 (API 절약)
+                await asyncio.sleep(3600)
+                continue
 
-                    for code in TARGET_CODES:
-                        params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code}
-                        res = requests.get(url, headers=headers, params=params)
-                        
-                        if res.status_code == 200:
-                            output = res.json().get('output')
-                            if output:
-                                # 종목명 매핑
-                                name_map = {
-                                    "005930": "삼성전자", "000660": "SK하이닉스", 
-                                    "373220": "LG엔솔", "005380": "현대차", 
-                                    "086520": "에코프로"
-                                }
-                                name = name_map.get(code, code)
-                                
-                                # 안전하게 정수 변환 (데이터가 없을 경우 대비 0 처리)
-                                try:
-                                    price = int(output.get('stck_prpr', '0'))
-                                    rate = float(output.get('prdy_ctrt', '0.0'))
-                                except ValueError:
-                                    price = 0
-                                    rate = 0.0
-                                
-                                emoji = "📈" if rate > 0 else "📉"
-                                if rate == 0: emoji = "➖"
-
-                                # 가격 천단위 콤마
-                                report_data.append(f"{emoji} {name} {price:,}원 ({rate}%)")
-                        
-                        # API 호출 부하 방지
-                        await asyncio.sleep(0.2)
-
-                    if report_data:
-                        payload = {
-                            "type": "RANKING",
-                            "time": current_time_str,
-                            "data": report_data
-                        }
-                        await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
-                        print(f"🚀 [전송완료] {current_time_str} 국내 리포트 발송 완료!")
-                        
-                        last_sent_minute = current_minute
+            # 2. 스케줄 도래
+            # (1) 정확히 매칭되는 시간 체크
+            target_time = None
+            if current_time in SCHEDULE_TIMES and current_time not in sent_times:
+                target_time = current_time
+            
+            # (2) 혹은 지난 10분 내에 보냈어야 했는데 안 보낸 게 있는지 체크 (루프 밀림 방지)
             else:
-                # 근무 시간이 아니면 조용히 로그 한 번만 찍고 넘어가거나, 그냥 쉼
-                # (너무 자주 찍히면 로그 더러워지니 생략 가능)
-                pass
+                current_hh = int(current_time[:2])
+                current_mm = int(current_time[2:])
+                
+                for t in SCHEDULE_TIMES:
+                    if t in sent_times: continue
+                    
+                    t_hh = int(t[:2])
+                    t_mm = int(t[2:])
+                    
+                    # 같은 시(HH)이고, 스케줄 시간 < 현재 시간 <= 스케줄 시간 + 10분
+                    if current_hh == t_hh and t_mm < current_mm <= t_mm + 10:
+                        target_time = t
+                        print(f"⏰ [KR-Scheduler] 지연 발송 감지! (Schedule: {t}, Now: {current_time})")
+                        break
+
+            if target_time:
+                
+                # 3. 휴장일 체크
+                is_holiday = check_is_holiday(current_token)
+                
+                # 🔄 토큰 갱신
+                if is_holiday == "AUTH_ERROR":
+                    print("🔄 [KR-Scheduler] 토큰 만료 감지. 갱신 시도...")
+                    new_token = get_access_token()
+                    if new_token:
+                        current_token = new_token
+                        print("✅ [KR-Scheduler] 토큰 갱신 완료! 재시도합니다.")
+                        await asyncio.sleep(2)
+                        continue 
+                
+                # 개장일 (False)
+                if is_holiday is False:
+                    # 매핑으로 명확히 타입 지정
+                    type_map = {"0840": "OPENING", "1200": "MID", "1600": "CLOSE"}
+                    briefing_type = type_map.get(target_time, "MID")
+                    
+                    print(f"⏰ [KR-Scheduler] {current_time} -> {briefing_type} 브리핑 요청 발송! (Target: {target_time})")
+                    
+                    payload = {
+                        "type": "MARKET_BRIEFING", 
+                        "market": "KR",
+                        "subtype": briefing_type,
+                        "time": now.strftime("%H:%M")
+                    }
+                    
+                    await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
+                    sent_times.add(target_time)
+                    
+                    # 중복 발송 방지를 위해 1분 대기
+                    await asyncio.sleep(60)
+                
+                # 휴장일 (True)
+                elif is_holiday is True:
+                    print(f"😴 [KR-Scheduler] 휴장일이라 {target_time} 브리핑 생략")
+                    sent_times.add(target_time) # 보낸 셈 치고 기록
+            
+            # 평소엔 10초 대기
+            await asyncio.sleep(10)
 
         except Exception as e:
-            print(f"❌ [국내 폴링팀] 에러: {e}")
-        
-        # [절대 수정 금지] 무조건 1분만 자고 일어나서 시계 확인 (연결 유지 핵심)
-        await asyncio.sleep(60)
+            print(f"❌ [KR-Scheduler] 에러: {e}")
+            await asyncio.sleep(10)

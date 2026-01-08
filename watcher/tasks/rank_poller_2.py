@@ -1,119 +1,111 @@
 import asyncio
-import requests
 import ujson
+import pytz
 from datetime import datetime
 from common.config import settings
 from common.redis_client import redis_client
+from watcher.kis_auth import get_access_token
 
-# 안전한 변환 함수 (그대로 유지)
-def safe_float(value):
-    if not value:
-        return 0.0
-    try:
-        return float(value)
-    except ValueError:
-        return 0.0
+# ✅ 공통 함수 임포트 (코드 재활용)
+from watcher.utils.definitions import check_us_market_open
 
-async def run_us_rank_poller(access_token):
+# ====================================================
+# [설정] 미국장 브리핑 시간표 (뉴욕 시간 기준)
+# 0940: 개장 10분 후 (프리마켓 이슈 + 거시경제 전략)
+# 1240: 점심 시간 (장중 중간 점검)
+# 1630: 장 마감 30분 후 (마감 시황)
+# ====================================================
+SCHEDULE_TIMES_NY = ["0920", "1240", "1630"]
+
+async def run_us_rank_poller(access_token=None):
     """
-    [해외주식팀] 미국 나스닥 대장주 시세 감시 (주기 변경 가능)
+    [US 시황 스케줄러] (뉴욕 시간 기준)
     """
+    print(f"⏰ [US-Scheduler] 스케줄러 가동 (Target NYT: {SCHEDULE_TIMES_NY})")
     
-    # ====================================================
-    # [설정] 몆 분마다 알림을 보낼까요? (숫자만 바꾸세요!)
-    # 예: 10 -> 10분, 20분, 30분... 에 발송
-    # 예: 60 -> 매시 정각(0분)에만 발송
-    SEND_INTERVAL_MINUTES = 60 
-    # ====================================================
-
-    # 감시할 종목
-    TARGET_STOCKS = {
-        "TSLA": {"name": "테슬라", "exch": "NAS"},
-        "NVDA": {"name": "엔비디아", "exch": "NAS"},
-        "AAPL": {"name": "애플", "exch": "NAS"},
-        "MSFT": {"name": "마이크로소프트", "exch": "NAS"},
-        "AMZN": {"name": "아마존", "exch": "NAS"},
-        "GOOGL": {"name": "구글", "exch": "NAS"},
-        "AMD": {"name": "AMD", "exch": "NAS"},
-        "PLTR": {"name": "팔란티어", "exch": "NYS"},
-    }
-
-    url = f"{settings.KIS_BASE_URL}/uapi/overseas-price/v1/quotations/price"
-    
-    headers = {
-        "content-type": "application/json; utf-8",
-        "authorization": f"Bearer {access_token}",
-        "appkey": settings.KIS_APP_KEY,
-        "appsecret": settings.KIS_APP_SECRET,
-        "tr_id": "HHDFS00000300"
-    }
-
-    print(f"🇺🇸 [해외팀] 모니터링 시작! ({SEND_INTERVAL_MINUTES}분 간격)(17:00 ~ 10:00 가동)")
-    
-    # 중복 발송 방지용 기록
-    last_sent_minute = -1
+    current_token = access_token
+    sent_times = set()
+    ny_tz = pytz.timezone('America/New_York')
 
     while True:
         try:
-            now = datetime.now()
-            current_hour = now.hour
-            current_minute = now.minute
-            current_time_str = now.strftime("%H:%M")
+            now_ny = datetime.now(ny_tz)
+            current_time_ny = now_ny.strftime("%H%M")
+            
+            # 1. 자정 초기화
+            if current_time_ny == "0000":
+                sent_times.clear()
+            
+            # 2. 주말 체크 (토=5, 일=6)
+            if now_ny.weekday() >= 5:
+                await asyncio.sleep(3600)
+                continue
 
-            is_us_market_open = (current_hour >= 17) or (current_hour < 10)
-            if is_us_market_open:
-            # [핵심 로직]
-            # 1. 1분마다 깨어나지만, '설정된 간격'에 딱 맞을 때만 실행합니다.
-            # 2. 이번 분(minute)에 이미 보냈으면 스킵합니다.
-                is_time_to_send = (current_minute % SEND_INTERVAL_MINUTES == 0)
-                
-                if is_time_to_send and (current_minute != last_sent_minute):
-                    
-                    print(f"🗽 [해외팀] {current_time_str} 정기 조회 시작...")
-                    report_data = []
-
-                    for symbol, info in TARGET_STOCKS.items():
-                        params = {
-                            "AUTH": "",
-                            "EXCD": info['exch'],
-                            "SYMB": symbol
-                        }
-                        
-                        res = requests.get(url, headers=headers, params=params)
-                        
-                        if res.status_code == 200:
-                            output = res.json().get('output')
-                            if output:
-                                name = info['name']
-                                price = safe_float(output.get('last'))
-                                rate = safe_float(output.get('rate'))
-                                
-                                emoji = "🚀" if rate > 0 else "💧"
-                                if rate == 0: emoji = "➖"
-
-                                report_data.append(f"{emoji} {name}({symbol}) ${price} ({rate}%)")
-                        
-                        # API 호출 너무 빠르지 않게
-                        await asyncio.sleep(0.2)
-
-                    if report_data:
-                        payload = {
-                            "type": "RANKING",
-                            "time": f"🇺🇸 {current_time_str}",
-                            "data": report_data
-                        }
-                        await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
-                        print(f"🛫 [전송완료] {current_time_str} 데이터 발송 끝!")
-                        
-                        # '이번 분'에는 보냈다고 도장 쾅!
-                        last_sent_minute = current_minute
+            # 3. 스케줄 도래 (10분 윈도우 적용)
+            target_time = None
+            
+            # (1) 정확히 매칭
+            if current_time_ny in SCHEDULE_TIMES_NY and current_time_ny not in sent_times:
+                target_time = current_time_ny
+            
+            # (2) 지연 발송 체크 (지난 10분 내에 보냈어야 했는데 안 보낸 경우)
             else:
-                # 미국장 닫힌 낮 시간에는 그냥 쉽니다.
-                pass
+                curr_hh = int(current_time_ny[:2])
+                curr_mm = int(current_time_ny[2:])
+                
+                for t in SCHEDULE_TIMES_NY:
+                    if t in sent_times: continue
+                    
+                    t_hh = int(t[:2])
+                    t_mm = int(t[2:])
+                    
+                    # 같은 시(HH)이고, 스케줄 시간 < 현재 시간 <= 스케줄 시간 + 10분
+                    if curr_hh == t_hh and t_mm < curr_mm <= t_mm + 10:
+                        target_time = t
+                        print(f"⏰ [US-Scheduler] 지연 발송 감지! (Schedule: {t}, Now: {current_time_ny})")
+                        break
+
+            if target_time:
+                # 4. 개장 여부 체크 (+ 토큰 만료 체크)
+                # definitions.py의 공통 함수 사용
+                market_status = check_us_market_open(current_token)
+                
+                # 🔄 토큰 만료 시 갱신 로직
+                if market_status == "AUTH_ERROR":
+                    print("🔄 [US-Scheduler] 토큰 만료 감지. 갱신 시도...")
+                    new_token = get_access_token()
+                    if new_token:
+                        current_token = new_token
+                        print("✅ [US-Scheduler] 토큰 갱신 완료! 다시 체크합니다.")
+                        await asyncio.sleep(2)
+                        continue # 루프 다시 돌아서 재시도
+                
+                # 개장 확인됨 (True)
+                if market_status is True:
+                    # 매핑으로 명확히 타입 지정
+                    type_map = {"0920": "OPENING", "1240": "MID", "1630": "CLOSE"}
+                    briefing_type = type_map.get(target_time, "MID")
+                    
+                    print(f"⏰ [US-Scheduler] {current_time_ny}(NY) -> {briefing_type} 브리핑 요청!")
+                    
+                    payload = {
+                        "type": "MARKET_BRIEFING", 
+                        "market": "US",
+                        "subtype": briefing_type,
+                        "time": now_ny.strftime("%H:%M") + " (NY)"
+                    }
+                    
+                    await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
+                    sent_times.add(target_time)
+                    await asyncio.sleep(60)
+                
+                # 휴장일/장전 (False)
+                else:
+                    print(f"😴 [US-Scheduler] {target_time}이지만 장이 닫혀있음 (Skip)")
+                    sent_times.add(target_time) # 계속 체크하지 않도록 보낸 셈 침
+            
+            await asyncio.sleep(10)
 
         except Exception as e:
-            print(f"❌ [해외팀] 에러: {e}")
-        
-        # [절대 수정 금지] 30분씩 자면 안 됩니다.
-        # 무조건 1분(60초)만 자고 일어나서 시계를 봐야 프로그램이 안 죽습니다.
-        await asyncio.sleep(60)
+            print(f"❌ [US-Scheduler] 에러: {e}")
+            await asyncio.sleep(10)

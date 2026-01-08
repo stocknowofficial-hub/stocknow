@@ -1,184 +1,203 @@
 import asyncio
 import ujson
-import requests
-import os
+import time
+import pytz
 from datetime import datetime
-import pytz 
 from common.config import settings
 from common.redis_client import redis_client
 from watcher.kis_auth import get_access_token
 
-POLLING_INTERVAL = 60 #폴링간격
+# ✅ 공통 함수 임포트
+from watcher.utils.definitions import (
+    check_us_market_open,
+    update_telegraph_board, 
+    fetch_us_stocks_by_condition
+)
 
-MIN_MARKET_CAP = "350000000" #3,500억 달러
-MAX_MARKET_CAP = "999999999999" 
+# =========================================================
+# 👇 [설정]
+POLLING_INTERVAL = 60
+MIN_MARKET_CAP = "70000000" # $100B (단위: 1,000달러 -> 1억 * 1000 = 1000억불)
+TARGET_EXCHANGES = ["NAS", "NYS"]
+MILESTONES = [5.0, 10.0, 15.0, 30.0] 
+# =========================================================
 
-TARGET_EXCHANGES = ["NAS", "NYS", "AMS"] #거래소
-PREV_US_STOCKS = set()
-
-def is_us_market_open():
-    """
-    미국 주식 운영 시간 체크 (Pre + Regular + After)
-    - 뉴욕 시간 기준: 04:00 ~ 20:00
-    - 주말(토, 일) 제외
-    """
-    try:
-        ny_tz = pytz.timezone('America/New_York') # 뉴욕시간
-        now_ny = datetime.now(ny_tz)
-        
-        if now_ny.weekday() >= 5: # 5,6일 주말
-            return False, "주말 휴장"
-
-        current_time_int = now_ny.hour * 100 + now_ny.minute # int(HHMM) 형태로 변환하여 비교
-        
-        start_time = 400   # 04:00 AM (프리장 시작)
-        end_time = 2000    # 08:00 PM (애프터마켓 종료)
-
-        if start_time <= current_time_int < end_time:
-            return True, "개장 중"
-        else:
-            return False, f"장 마감 (현재 뉴욕 {now_ny.strftime('%H:%M')})"
-            
-    except Exception as e:
-        print(f"⚠️ [시간 체크 오류] {e}")
-        return True, "시간 체크 실패(Pass)" 
-
-def fetch_us_stocks_by_condition(token, exchange_code):
-    # [REST API] 해외주식 조건검색 요청 (시총 조건만 사용)
-    url = "https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/inquire-search"
-    
-    headers = {
-        "content-type": "application/json; utf-8",
-        "authorization": f"Bearer {token}",
-        "appkey": settings.KIS_APP_KEY,
-        "appsecret": settings.KIS_APP_SECRET,
-        "tr_id": "HHDFS76410000",
-        "custtype": "P"
-    }
-    
-    params = {
-        "AUTH": "",
-        "EXCD": exchange_code,
-        "CO_YN_VALX": "1",          # 시가총액 조건 사용
-        "CO_ST_VALX": MIN_MARKET_CAP,
-        "CO_EN_VALX": MAX_MARKET_CAP,
-        "KEYB": ""
-    }
-    
-    try:
-        res = requests.get(url, headers=headers, params=params, timeout=5)
-        data = res.json()
-        
-        if res.status_code == 200 and 'output2' in data:
-            return data['output2']
-        return []
-            
-    except Exception as e:
-        print(f"❌ [US API 에러] {e}")
-        return []
+# ✅ 전역 변수
+alert_history = {}
+telegraph_info = {"access_token": None, "path": None, "url": None}
+last_telegraph_update = 0
+is_premarket_briefing_sent = False
+is_open_briefing_sent = False # ✅ 장초반 브리핑 플래그 추가
 
 async def run_condition_watcher_us(approval_key, access_token=None):
-    """
-    [해외 조건팀] 'Volatile Giants' (시총 500조↑ & 등락률 ±2%↑)
-    """
-    global PREV_US_STOCKS
+    """미국 조건팀 Main Loop"""
+    global alert_history, is_premarket_briefing_sent, is_open_briefing_sent, last_telegraph_update
+    
     current_token = access_token
-    
-    # 디버그용 (처음 한 번만 출력)
-    if current_token:
-        print(f"🇺🇸 [해외 조건팀] 토큰 확인 완료 ({current_token[:5]}...)")
-    
-    print(f"🇺🇸 [해외 조건팀] 'Volatile Giants' 대기 중... (운영시간: 뉴욕 04:00~20:00)")
+    print(f"🇺🇸 [해외 조건팀] Giant Watcher 가동 ($100B↑ & ±3%↑)")
 
     while True:
         try:
-            # 1. 운영 시간 체크
-            is_open, msg = is_us_market_open()
+            ny_tz = pytz.timezone('America/New_York')
+            now_ny = datetime.now(ny_tz)
+            current_time_ny = now_ny.strftime("%H%M")
             
-            if not is_open:
-                # 장 마감 시간이면 API 호출 안 하고 대기
-                # 여기서는 5분(300초)마다 체크하도록 설정
-                await asyncio.sleep(300) 
+            # 0. 운영 시간 체크 (뉴욕 04:00 ~ 20:00)
+            ny_hour = now_ny.hour
+            if not (4 <= ny_hour < 20):
+                alert_history.clear()
+                is_premarket_briefing_sent = False
+                is_open_briefing_sent = False # 초기화
+                telegraph_info["path"] = None
+                print("💤 [US Market] 운영 시간 아님. 대기 중...")
+                await asyncio.sleep(300)
                 continue
 
-            current_cycle_stocks = set()
-            found_list = []
+            # -------------------------------------------------------------
+            # ✅ [최적화] 주말 체크 (API 호출 낭비 방지)
+            # -------------------------------------------------------------
+            # 5=토요일, 6=일요일 -> 1시간 푹 잡니다.
+            if now_ny.weekday() >= 5:
+                print(f"💤 [US Market] 주말입니다 ({now_ny.strftime('%A')}). 1시간 대기...")
+                await asyncio.sleep(3600)
+                continue
+            # -------------------------------------------------------------
 
-            for excd in TARGET_EXCHANGES:
-                loop = asyncio.get_event_loop()
-                stock_list = await loop.run_in_executor(None, fetch_us_stocks_by_condition, current_token, excd)
+            # 1. 휴장일/장운영 여부 체크 (평일 휴장일 등 체크용)
+            is_open = check_us_market_open(current_token)
+            
+            if is_open == "AUTH_ERROR":
+                print("🔄 [US] 토큰 만료. 갱신 시도...")
+                current_token = get_access_token()
+                await asyncio.sleep(2)
+                continue
                 
-                # 토큰 만료 처리
-                if stock_list == [] and current_token is None:
-                     current_token = get_access_token()
-                     continue
+            if is_open is False:
+                # 평일인데 아직 장이 안 열렸거나(새벽 4시 직전), 휴장일인 경우
+                print("💤 [US Market] 거래량 없음 (장전/휴장). 1분 대기...")
+                await asyncio.sleep(60)
+                continue
 
-                if isinstance(stock_list, list):
-                    for item in stock_list:
-                        code = item.get('rsym') or item.get('code')
-                        name = item.get('ename') or item.get('name')
-                        price = item.get('last') or item.get('price')
-                        rate = item.get('rate') or item.get('diff')
-
-                        if code and rate:
-                            # 🚨 [핵심 필터] 등락률 절대값이 2.0 이상인 경우만 통과
-                            try:
-                                rate_val = float(rate)
-                                if abs(rate_val) < 2.0:
-                                    continue 
-                            except:
-                                continue
-
-                            unique_key = f"{excd}:{code}"
-                            current_cycle_stocks.add(unique_key)
+            # 2. 데이터 수집
+            collected_data = []
+            loop = asyncio.get_event_loop()
+            
+            for excd in TARGET_EXCHANGES:
+                items = await loop.run_in_executor(
+                    None, 
+                    fetch_us_stocks_by_condition, 
+                    current_token, 
+                    excd, 
+                    MIN_MARKET_CAP
+                )
+                
+                if isinstance(items, list):
+                    for item in items:
+                        try:
+                            rate = float(item.get('rate') or item.get('diff'))
+                            if abs(rate) < 3.0: continue
                             
-                            stock_info = {
-                                "excd": excd,
-                                "code": code,
-                                "name": name,
-                                "price": price,
+                            collected_data.append({
+                                "code": item.get('symb') or item.get('rsym') or item.get('code'), # ✅ [수정] Clean Ticker (symb 우선)
+                                "name": item.get('name') or item.get('ename'),
+                                "price": item.get('last') or item.get('price'),
                                 "rate": rate,
-                                "key": unique_key
-                            }
-                            found_list.append(stock_info)
+                                "excd": excd
+                            })
+                        except: continue
+                await asyncio.sleep(0.5)
 
-            # 결과 처리
-            is_first_run = (len(PREV_US_STOCKS) == 0)
-
-            # 1. 초기 리스트 출력
-            if is_first_run:
-                if len(found_list) > 0:
-                    print(f"\n🌊 [초기 포착] 현재 춤추는 대장주 {len(found_list)}개 발견:")
-                    print("="* 60)
-                    for s in found_list:
-                        emoji = "🚀" if float(s['rate']) > 0 else "💧"
-                        print(f"   {emoji} {s['name']:<20} ({s['code']})  ${s['price']} ({s['rate']}%)")
-                    print("="* 60)
-                else:
-                    # 장 중인데 조건 만족하는 게 없을 때
-                    pass
-
-            # 2. 신규 진입 알림
-            elif not is_first_run:
-                for s in found_list:
-                    if s['key'] not in PREV_US_STOCKS:
-                        emoji = "🚀" if float(s['rate']) > 0 else "💧"
-                        print(f"🇺🇸 [변동 포착] {s['name']} ({s['code']}) 급변동! {s['rate']}%")
+            # 3. 현황판 업데이트 (데이터 없어도 시간 갱신 위해 수행)
+            if time.time() - last_telegraph_update > 300:
+                page_url = await loop.run_in_executor(
+                    None, 
+                    update_telegraph_board, 
+                    telegraph_info, 
+                    f"🇺🇸 {now_ny.month}/{now_ny.day} US Market Live", 
+                    collected_data 
+                )
+                last_telegraph_update = time.time()
+                
+                # 4-1. 프리마켓 브리핑 (08:40 NYT) - 시간 변경
+                if not is_premarket_briefing_sent and current_time_ny >= "0840" and current_time_ny < "0910":
+                    if page_url and collected_data: # 데이터 있을 때만 브리핑
+                        rising_top = sorted([x for x in collected_data if x['rate'] > 0], key=lambda x: x['rate'], reverse=True)[:3]
+                        falling_top = sorted([x for x in collected_data if x['rate'] < 0], key=lambda x: x['rate'])[:3]
                         
+                        summary_text = "📈 [급등]\n"
+                        for s in rising_top: summary_text += f"• {s['name']} ({s['rate']}%)\n"
+                        if not rising_top: summary_text += "• 특이사항 없음\n"
+
+                        summary_text += "\n📉 [급락]\n"
+                        for s in falling_top: summary_text += f"• {s['name']} ({s['rate']}%)\n"
+                        if not falling_top: summary_text += "• 특이사항 없음\n"
+
+                        payload = {
+                            "type": "NEWS_SUMMARY",
+                            "name": "🇺🇸 [프리마켓 브리핑]",
+                            "summary": f"오늘 밤 장전 주요 움직임입니다 (±3% 이상 / 시총 1,000억불 이상).\n\n{summary_text}\n...전체 현황판은 아래 링크 클릭",
+                            "sentiment": "Neutral",
+                            "link": page_url,
+                            "should_pin": True # 📌 고정
+                        }
+                        await redis_client.publish("news_alert", ujson.dumps(payload))
+                        is_premarket_briefing_sent = True
+                        print("📢 [US] 프리마켓 브리핑 전송 완료")
+                
+                # 4-2. 장 초반 브리핑 (09:35 NYT) - 신규 추가
+                if not is_open_briefing_sent and current_time_ny >= "0935":
+                    if page_url and collected_data: # 데이터 있을 때만 브리핑
+                        rising_top = sorted([x for x in collected_data if x['rate'] > 0], key=lambda x: x['rate'], reverse=True)[:3]
+                        falling_top = sorted([x for x in collected_data if x['rate'] < 0], key=lambda x: x['rate'])[:3]
+                        
+                        summary_text = "📈 [급등]\n"
+                        for s in rising_top: summary_text += f"• {s['name']} ({s['rate']}%)\n"
+                        if not rising_top: summary_text += "• 특이사항 없음\n"
+
+                        summary_text += "\n📉 [급락]\n"
+                        for s in falling_top: summary_text += f"• {s['name']} ({s['rate']}%)\n"
+                        if not falling_top: summary_text += "• 특이사항 없음\n"
+
+                        payload = {
+                            "type": "NEWS_SUMMARY",
+                            "name": "🇺🇸 [장 초반 브리핑]",
+                            "summary": f"장 초반 수급 집중 종목입니다 (±3% 이상 / 시총 1,000억불 이상).\n\n{summary_text}\n...전체 현황판은 아래 링크 클릭",
+                            "sentiment": "Neutral",
+                            "link": page_url,
+                            "should_pin": True # 📌 고정 (최신으로 덮어씀)
+                        }
+                        await redis_client.publish("news_alert", ujson.dumps(payload))
+                        is_open_briefing_sent = True
+                        print("📢 [US] 장 초반 브리핑 전송 완료")
+
+            # 5. AI 저격 (본장 시작 후: 09:41 NYT) - 시간 변경
+            if current_time_ny >= "0941":
+                for item in collected_data:
+                    code = item['code']
+                    name = item['name']
+                    rate = float(item['rate'])
+                    price = item['price']
+                    
+                    target_ms = 0.0
+                    last_ms = alert_history.get(code, {}).get("last_milestone", 0.0)
+                    
+                    for ms in MILESTONES:
+                        if abs(rate) >= ms and abs(last_ms) < ms:
+                            target_ms = ms
+                    
+                    if target_ms > 0.0:
+                        print(f"🔥 [US AI 저격] {name} ({rate}%) -> {target_ms}% 돌파!")
                         payload = {
                             "type": "CONDITION_US",
-                            "code": s['code'],
-                            "name": s['name'],
-                            "price": s['price'],
-                            "rate": s['rate'],
-                            "market": "US",
-                            "exchange": s['excd']
+                            "code": code,
+                            "name": name,
+                            "price": price,
+                            "rate": str(rate),
+                            "market": "US"
                         }
                         await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
+                        alert_history[code] = {"last_milestone": target_ms}
 
-            # 목록 업데이트
-            PREV_US_STOCKS = current_cycle_stocks
-            
             await asyncio.sleep(POLLING_INTERVAL)
 
         except Exception as e:
