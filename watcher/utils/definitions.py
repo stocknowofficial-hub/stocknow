@@ -12,7 +12,12 @@ def check_is_holiday(token):
     오늘이 휴장일인지 확인
     Returns: True(휴장), False(개장), "AUTH_ERROR"(토큰만료)
     """
-    today_str = datetime.now().strftime("%Y%m%d")
+    today_dt = datetime.now()
+    if today_dt.weekday() >= 5: # 5=토, 6=일
+        print(f"😴 [KR-Condition] 오늘은 주말입니다 ({today_dt.strftime('%A')}).")
+        return True
+
+    today_str = today_dt.strftime("%Y%m%d")
     url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/chk-holiday"
     
     headers = {
@@ -41,6 +46,8 @@ def check_is_holiday(token):
                     else:
                         print(f"✅ [KR-Condition] 오늘은 개장일입니다 ({today_str}).")
                         return False
+            
+            print(f"⚠️ [KR-Condition] API 데이터에 오늘 날짜({today_str}) 없음 -> 개장일로 가정합니다.")
             return False
         return "AUTH_ERROR"
     except Exception as e:
@@ -256,3 +263,38 @@ def fetch_us_stocks_by_condition(token, exchange_code, min_market_cap):
             return data['output2']
         return []
     except: return []
+
+# =========================================================
+# 🛠️ [NEW] 통합 휴장일/상태 체크 (Domestic Only)
+# =========================================================
+def check_today_actionable(token):
+    """
+    오늘 국내장이 '돌아가는 날'인지 판단 (주말 X, 공휴일 X)
+    Returns: 
+        - "OPEN": 개장일
+        - "WEEKEND": 주말 (토/일)
+        - "HOLIDAY": 공휴일 (평일인데 쉼)
+        - "AUTH_ERROR": 토큰 오류
+    """
+    today_dt = datetime.now()
+    
+    # 1. [Python Level] 주말 컷
+    if today_dt.weekday() >= 5: # 5=토, 6=일
+        print(f"😴 [System] 오늘은 주말({today_dt.strftime('%A')})입니다. (Skip)")
+        return "WEEKEND"
+
+    # 2. [API Level] 공휴일 체크
+    # 기존 check_is_holiday가 내부적으로 API 호출 및 True/False 리턴
+    # 단, check_is_holiday가 이미 '주말 체크'를 포함하고 있어서 중복될 수 있으나 
+    # 명확한 상태 분리를 위해 래핑함
+    holiday_check = check_is_holiday(token)
+    
+    if holiday_check == "AUTH_ERROR":
+        return "AUTH_ERROR"
+    
+    if holiday_check is True:
+        # check_is_holiday 안에서 이미 로그 찍음
+        return "HOLIDAY"
+        
+    # 3. 개장일
+    return "OPEN"

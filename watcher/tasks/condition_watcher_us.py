@@ -42,15 +42,16 @@ async def run_condition_watcher_us(approval_key, access_token=None):
             now_ny = datetime.now(ny_tz)
             current_time_ny = now_ny.strftime("%H%M")
             
-            # 0. 운영 시간 체크 (뉴욕 04:00 ~ 20:00)
+            # 0. 운영 시간 체크 (뉴욕 04:00 ~ 17:00) 
+            # (기존 20:00은 애프터마켓까지 포함인데, 한국장 시작과 겹침)
             ny_hour = now_ny.hour
-            if not (4 <= ny_hour < 20):
+            if not (4 <= ny_hour < 17):
                 alert_history.clear()
                 is_premarket_briefing_sent = False
                 is_open_briefing_sent = False # 초기화
                 telegraph_info["path"] = None
-                print("💤 [US Market] 운영 시간 아님. 대기 중...")
-                await asyncio.sleep(300)
+                print(f"💤 [US Market] 정규장 마감 ( ~ 17:00 NYT). 1시간 대기 ({now_ny.strftime('%H:%M')})...")
+                await asyncio.sleep(3600)
                 continue
 
             # -------------------------------------------------------------

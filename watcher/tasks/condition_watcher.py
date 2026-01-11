@@ -9,6 +9,7 @@ from watcher.kis_auth import get_access_token
 # ✅ 분리한 함수들 임포트
 from watcher.utils.definitions import (
     check_is_holiday,
+    check_today_actionable, # ✅ 추가
     update_telegraph_board,
     fetch_condition_stocks
 )
@@ -35,34 +36,55 @@ async def run_condition_watcher(approval_key, access_token=None):
 
     MY_HTS_ID = settings.KIS_HTS_ID or "chh6518"
 
+    # ✅ 상태 관리
+    current_status = "UNKNOWN" # OPEN, WEEKEND, HOLIDAY
+    last_check_date = None
+    is_morning_rechecked = False # 08:10 부근 재조회 완료 여부
+
     while True:
         try:
             now = datetime.now()
             today_str = now.strftime("%Y%m%d")
             current_time_str = now.strftime("%H%M")
             
-            # 1. 휴장일 체크
-            if last_holiday_check_date != today_str:
-                is_holiday = check_is_holiday(current_token) # utils 함수 호출
+            # 1. 날짜가 바뀌면 상태 초기화 & 점검
+            if last_check_date != today_str:
+                print(f"📅 [국내 조건팀] 날짜 변경 감지 ({last_check_date} -> {today_str})")
+                is_morning_rechecked = False # 날짜 바뀌면 플래그 초기화
                 
-                if is_holiday == "AUTH_ERROR":
+                # 점검 수행
+                status_result = check_today_actionable(current_token)
+                if status_result == "AUTH_ERROR":
+                     print("🔄 [시스템] 토큰 만료. 갱신 시도...")
+                     new_token = get_access_token()
+                     if new_token: current_token = new_token; await asyncio.sleep(2); continue
+
+                current_status = status_result
+                last_check_date = today_str
+                print(f"✅ [국내 조건팀] 오늘 상태 확정: {current_status}")
+
+            # 2. 아침(08:00~08:15) 더블체크 (안전장치)
+            # - 혹시 새벽에 오류로 닫힘/열림이 잘못됐을까봐 장 시작 전 한번 더 확인
+            if "0800" <= current_time_str <= "0815" and not is_morning_rechecked:
+                print(f"🕵️ [국내 조건팀] 아침 정기점검 수행 ({current_time_str})")
+                status_result = check_today_actionable(current_token)
+                
+                if status_result == "AUTH_ERROR":
                     print("🔄 [시스템] 토큰 만료. 갱신 시도...")
                     new_token = get_access_token()
-                    if new_token:
-                        current_token = new_token
-                        await asyncio.sleep(2)
-                        continue
-
-                if is_holiday is True:
-                    last_holiday_check_date = today_str
-                    # 🚨 [수정] 24시간(86400) -> 1시간(3600)으로 변경
-                    # 이유: 일요일 밤에 실행했을 때 월요일 아침을 놓치지 않기 위함
-                    print("😴 휴장일이므로 1시간 대기합니다...")
-                    await asyncio.sleep(3600)
-                    continue
+                    if new_token: current_token = new_token; await asyncio.sleep(2); continue 
                 
-                if is_holiday is False:
-                    last_holiday_check_date = today_str
+                current_status = status_result
+                print(f"✅ [국내 조건팀] 아침 점검 결과: {current_status}")
+                is_morning_rechecked = True # 체크 완료 표시
+
+            # 3. 휴장/주말이면 -> 긴 잠 (1시간)
+            # 주말에도 1시간에 1번 정도는 깨서 날짜 바뀌었는지 보는 게 맞음 (부하 거의 없음)
+            if current_status != "OPEN":
+                await asyncio.sleep(3600)
+                continue
+            
+            # --- 🚦 아래는 "개장일(OPEN)"일 때만 실행됨 ---
 
             # 2. 시간 체크 (08:30 ~ 16:00)
             if not ("0830" <= current_time_str <= "1600"):

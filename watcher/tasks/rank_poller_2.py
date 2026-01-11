@@ -11,11 +11,11 @@ from watcher.utils.definitions import check_us_market_open
 
 # ====================================================
 # [설정] 미국장 브리핑 시간표 (뉴욕 시간 기준)
-# 0940: 개장 10분 후 (프리마켓 이슈 + 거시경제 전략)
+# 0850: 개장 20분 전 (프리마켓 이슈 + 거시경제 전략)
 # 1240: 점심 시간 (장중 중간 점검)
 # 1630: 장 마감 30분 후 (마감 시황)
 # ====================================================
-SCHEDULE_TIMES_NY = ["0920", "1240", "1630"]
+SCHEDULE_TIMES_NY = ["0850", "1240", "1630"]
 
 async def run_us_rank_poller(access_token=None):
     """
@@ -35,7 +35,15 @@ async def run_us_rank_poller(access_token=None):
             # 1. 자정 초기화
             if current_time_ny == "0000":
                 sent_times.clear()
-            
+
+            # 0. 운영 시간 체크 (뉴욕 04:00 ~ 17:00) 
+            # (애프터마켓 이후 한국장 시작 전에는 침묵)
+            ny_hour = now_ny.hour
+            if not (4 <= ny_hour < 17):
+                 # 주말이나 밤에는 불필요한 로그 자제 (5분에 한번 체크)
+                await asyncio.sleep(300)
+                continue
+
             # 2. 주말 체크 (토=5, 일=6)
             if now_ny.weekday() >= 5:
                 await asyncio.sleep(3600)
@@ -83,7 +91,7 @@ async def run_us_rank_poller(access_token=None):
                 # 개장 확인됨 (True)
                 if market_status is True:
                     # 매핑으로 명확히 타입 지정
-                    type_map = {"0920": "OPENING", "1240": "MID", "1630": "CLOSE"}
+                    type_map = {"0850": "OPENING", "1240": "MID", "1630": "CLOSE"}
                     briefing_type = type_map.get(target_time, "MID")
                     
                     print(f"⏰ [US-Scheduler] {current_time_ny}(NY) -> {briefing_type} 브리핑 요청!")

@@ -1,17 +1,64 @@
 import asyncio
 import ujson
 import redis.asyncio as redis
-import pytz # ✅ 시차 해결을 위해 추가
+import pytz 
+import aiohttp # ✅ Added for DB logging
 from datetime import datetime
 from common.config import settings
+from common.logger import setup_logger # ✅ Logger Import
 from worker.modules.ai.gemini_search import GeminiSearch
 from worker.modules.ai.gemini_search_pro import GeminiSearchPro
 
+logger = setup_logger("NewsWorker", "logs/worker", "worker.log")
+
 class NewsWorker:
     def __init__(self):
-        print(f"📰 [NewsWorker] Dual Engine Mode (Flash=Stocks, Pro=Briefing)")
+        logger.info(f"📰 [NewsWorker] Dual Engine Mode (Flash=Stocks, Pro=Briefing)")
         self.gemini = GeminiSearch()           # 속도 (종목 분석용)
         self.gemini_pro = GeminiSearchPro()    # 지능 (시황 브리핑용)
+
+    async def fetch_recent_context(self):
+        """백엔드에서 최근 분석 로그(7일치)를 가져와서 문자열로 변환"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get("http://127.0.0.1:8000/analysis/market/recent?days=7") as resp:
+                    if resp.status == 200:
+                        logs = await resp.json()
+                        if not logs: return None
+                        
+                        context_lines = []
+                        for idx, log in enumerate(logs):
+                            # [트럼프분석] (2026-01-11) "블라블라..." (Sectors: Energy)
+                            meta = ""
+                            if log.get('sectors'): meta += f" [Sectors: {log['sectors']}]"
+                            
+                            line = f"{idx+1}. ({log['date']}) [{log['category']}] \"{log['title']}\"{meta}\n   - 요약: {log['summary'][:100]}..."
+                            context_lines.append(line)
+                            
+                        return "\n".join(context_lines)
+        except Exception as e:
+            logger.error(f"⚠️ [Context] 과거 기록 조회 실패: {e}")
+        return None
+
+    async def save_to_db(self, category, title, content, sentiment, related_code, price_info):
+        """백엔드 API로 분석 결과 전송"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "category": category,
+                    "title": title,
+                    "content": content,
+                    "sentiment": sentiment,
+                    "related_code": related_code,
+                    "price_info": price_info
+                }
+                async with session.post("http://127.0.0.1:8000/analysis", json=payload) as resp:
+                    if resp.status == 200:
+                        logger.info(f"💾 [DB Saved] {title} 분석 기록 저장 완료")
+                    else:
+                        logger.error(f"⚠️ [DB Error] 저장 실패: {resp.status} - {await resp.text()}")
+        except Exception as e:
+            logger.error(f"⚠️ [DB Error] 연결 실패: {e}")
 
     async def process_pipeline(self, msg_data):
         """
@@ -25,13 +72,11 @@ class NewsWorker:
         # -----------------------------------------------------
         # 1. 한국 시간 (시스템 시간)
         now_kr = datetime.now()
-        date_str_kr = now_kr.strftime("%Y년 %m월 %d일") # 예: 2026년 1월 5일
+        date_str_kr = now_kr.strftime("%Y년 %m월 %d일") 
 
         # 2. 미국 뉴욕 시간 (API 검색용)
-        # 🚨 한국이 1/5 새벽이어도, 미국은 1/4 낮일 수 있음 -> 검색 정확도 핵심!
         ny_tz = pytz.timezone('America/New_York')
         now_ny = datetime.now(ny_tz)
-        # date_str_us = now_ny.strftime("%Y-%m-%d") (삭제: 날짜 혼동 방지)
         
         # -----------------------------------------------------
         # A. 급등주 분석 (CONDITION)
@@ -45,19 +90,15 @@ class NewsWorker:
             query = ""
             clean_keyword = "" 
 
-            # 🇰🇷 [한국장 전략] -> 한국 시간 사용
+            # 🇰🇷 [한국장 전략] 
             if market == 'KR':
                 move_type = "급등" if is_bullish else "급락"
-                query = f"{date_str_kr} {name} 주가 {move_type} 이유와 관련 최신 뉴스 3줄 요약"
+                query = f"{name} {move_type} 이유 및 관련 최신 뉴스 (주가 전망 포함)"
                 clean_keyword = name 
 
-            # 🇺🇸 [미국장 전략] -> 뉴욕 시간 사용
+            # 🇺🇸 [미국장 전략]
             else:
-                # ✅ [Link Fix] "인텔 (INTC)" 처럼 한글 섞이면 구글 뉴스 링크 깨짐 -> "Code stock"으로 통일
                 clean_keyword = f"{code} stock"
-                
-                # ✅ [AI Query] "Target: ..." 같은 지시사항을 넣으면 검색어 오염됨.
-                # 그냥 자연스럽게 풀네임을 문장에 녹이는 게 검색율 가장 좋음 (Step 838 회귀 + 링크 유지)
                 search_subject = f"{name} ({code})"
                 
                 if is_bullish:
@@ -65,16 +106,19 @@ class NewsWorker:
                 else:
                     query = f"Why is {search_subject} stock down today? latest news and major issues. (Answer in Korean)"
             
+            # ✅ [Context Injection] 최근 분석 기록(트럼프/브리핑) 가져오기
+            market_context = await self.fetch_recent_context()
+            
             print(f"🧠 [Gemini 요청] {query} / [Link] {clean_keyword}")
-            return await self.gemini.search_and_summarize(query, link_keyword=clean_keyword)
+            if market_context: logger.info(f"   ㄴ 📚 Context Injected: {len(market_context)} chars")
+            
+            return await self.gemini.search_and_summarize(query, link_keyword=clean_keyword, market_context=market_context)
 
         # -----------------------------------------------------
         # B. 시황 브리핑 (MARKET_BRIEFING)
         # -----------------------------------------------------
         elif msg_type == 'MARKET_BRIEFING':
-            subtype = msg_data.get('subtype') # OPENING, MID, CLOSE
-            
-            # 모드 조합 (예: KR_OPENING)
+            subtype = msg_data.get('subtype') 
             pro_mode = f"{market}_{subtype}"
             
             query = ""
@@ -92,14 +136,46 @@ class NewsWorker:
                 elif subtype == 'MID': query = "US stock market mid-day trading update and top gainers/losers. (Answer in Korean)"
                 elif subtype == 'CLOSE': query = "US stock market closing summary and why major tech stocks moved today. (Answer in Korean)"
             
-            print(f"🧠 [Gemini Pro] 요청: {query} (Mode: {pro_mode})")
+            logger.info(f"🧠 [Gemini Pro] 요청: {query} (Mode: {pro_mode})")
             return await self.gemini_pro.search_and_summarize(query, link_keyword=clean_keyword, mode=pro_mode)
+
+        # -----------------------------------------------------
+        # C. SNS 분석 (SNS_ANALYSIS) - 트럼프 전담
+        # -----------------------------------------------------
+        elif msg_type == 'SNS_ANALYSIS':
+            author = msg_data.get('author', 'Unknown')
+            text = msg_data.get('text', '')
+            original_url = msg_data.get('url', '')
+            post_time = msg_data.get('time') # ✅ 시간 정보 추출
+            
+            query = text
+            pro_mode = 'TRUMP_ANALYSIS'
+            
+            print(f"🏛️ [SNS Analysis] {author} 발언 분석 중... (Length: {len(text)})")
+            return await self.gemini_pro.search_and_summarize(query, mode=pro_mode, original_url=original_url, post_time=post_time)
+
+        # -----------------------------------------------------
+        # D. 주간 리포트 분석 (REPORT_ANALYSIS)
+        # -----------------------------------------------------
+        elif msg_type == 'REPORT_ANALYSIS':
+            source = msg_data.get('source')
+            title = msg_data.get('title')
+            text = msg_data.get('text')
+            file_path = msg_data.get('file_path') # ✅ File Path Check
+            
+            logger.info(f"📑 [Report Analysis] {source}: {title}")
+            
+            if file_path:
+                logger.info(f"   ㄴ 📂 File Mode: {file_path}")
+                return await self.gemini_pro.analyze_report_file(source, title, file_path)
+            else:
+                return await self.gemini_pro.analyze_report(source, title, text)
            
         return None
 
     async def run(self):
         """Main Loop: Redis 메시지 수신 대기"""
-        print(f"🚀 [NewsWorker] 시스템 가동 완료 (Target: {getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')})")
+        logger.info(f"🚀 [NewsWorker] 시스템 가동 완료 (Target: {getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')})")
         
         r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
         pubsub = r.pubsub()
@@ -114,47 +190,108 @@ class NewsWorker:
                         data = ujson.loads(data_str)
                         msg_type = data.get('type')
                         
-                        # 처리할 메시지 타입 필터링
-                        if msg_type not in ['CONDITION', 'CONDITION_US', 'MARKET_BRIEFING']:
+                        if msg_type not in ['CONDITION', 'CONDITION_US', 'MARKET_BRIEFING', 'SNS_ANALYSIS', 'REPORT_ANALYSIS']:
                             continue
                             
-                        # ---------------------------------------------------
                         # 🧠 AI 분석 수행
-                        # ---------------------------------------------------
                         final_result = await self.process_pipeline(data)
                         
                         if final_result:
-                            # ✅ 분석 성공: 결과 전송
                             summary = final_result.get('summary', '')
+
+                            if "SKIP" in summary:
+                                logger.info(f"🔇 [AI Filter] 영양가 없는 잡담으로 판별됨. (Skip)")
+                                continue
                             
-                            # 제목 설정 (종목명 or 브리핑 제목)
+                            # 제목 및 카테고리 설정
+                            category = "STOCK"
                             if msg_type == 'MARKET_BRIEFING':
                                 mk_name = "🇰🇷 한국장" if data.get('market') == 'KR' else "🇺🇸 미국장"
                                 sub_name = {"OPENING": "개장 브리핑", "MID": "오전/장중 브리핑", "CLOSE": "마감 브리핑"}.get(data.get('subtype'), "브리핑")
                                 title = f"{mk_name} [{sub_name}]"
+                                category = "BRIEFING"
+                            elif msg_type == 'SNS_ANALYSIS':
+                                title = f"🏛️ [트럼프 긴급 포착]"
+                                category = "TRUMP"
+                            elif msg_type == 'REPORT_ANALYSIS':
+                                mk_source = data.get('source', 'Analyst')
+                                title = f"📑 [{mk_source} 리포트 Output]"
+                                category = "ANALYST_REPORT"
                             else:
                                 title = data.get('name')
+                                category = "STOCK"
+                                
+                            # ✅ Payload Link Logic (Compute BEFORE Saving DB)
+                            final_link = final_result.get('link', '')
+                            if msg_type == 'REPORT_ANALYSIS' and data.get('url'):
+                                final_link = data.get('url') # Override with Real PDF URL
+
+                            # ✅ [DB Save] 분석 결과 백엔드로 전송 (Split)
+                            if category == "STOCK":
+                                await self.save_stock_log(
+                                    code=data.get('code'),
+                                    name=data.get('name'),
+                                    price=str(data.get('price', '')),
+                                    rate=str(data.get('rate', '')),
+                                    summary=summary,
+                                    sentiment=final_result.get('sentiment', 'Neutral')
+                                )
+                            else:
+                                await self.save_market_log(
+                                    category=category,
+                                    title=title,
+                                    content=summary,
+                                    sentiment=final_result.get('sentiment', 'Neutral'),
+                                    original_url=final_link, # ✅ Use Correct Link
+                                    sectors=final_result.get('sectors'),
+                                    topics=final_result.get('topics')
+                                )
                             
                             payload = {
-                                "type": "NEWS_SUMMARY",
+                                "type": "SNS_SUMMARY" if msg_type == 'SNS_ANALYSIS' else "NEWS_SUMMARY",
                                 "name": title,
                                 "summary": summary,
                                 "sentiment": final_result.get('sentiment', 'Neutral'),
-                                "link": final_result.get('link', ''),
-                                # ✅ [데이터 전달] 원본 메시지의 가격/등락률 정보 포함
+                                "link": final_link, 
                                 "price": data.get('price'),
                                 "rate": data.get('rate')
                             }
+                            
+                            if msg_type == 'SNS_ANALYSIS':
+                                payload['should_pin'] = True
                             await r.publish("news_alert", ujson.dumps(payload))
-                            print(f"✅ [발송 완료] {title} 분석 결과 Redis 전송됨")
+                            logger.info(f"✅ [발송 완료] {title} 분석 결과 Redis 전송됨")
                         else:
-                            # 분석 실패 시 조용히 넘어감
-                            print(f"   💨 [Skip] 유효한 뉴스/결과가 없어 전송하지 않습니다.")
+                            logger.info(f"   💨 [Skip] 유효한 뉴스/결과가 없어 전송하지 않습니다.")
                         
                     except Exception as e:
-                        print(f"⚠️ [Error] 메시지 처리 중 오류: {e}")
+                        logger.error(f"⚠️ [Error] 메시지 처리 중 오류: {e}")
                         
         except asyncio.CancelledError:
-            print("🛑 NewsWorker 종료")
+            logger.info("🛑 NewsWorker 종료")
         finally:
             await r.aclose()
+
+    async def save_stock_log(self, code, name, price, rate, summary, sentiment):
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {"code": code, "name": name, "price": price, "rate": rate, "summary": summary, "sentiment": sentiment}
+                async with session.post("http://127.0.0.1:8000/analysis/stock", json=payload) as resp:
+                    if resp.status != 200: logger.error(f"⚠️ [DB Error] Stock 저장 실패: {await resp.text()}")
+        except Exception as e: logger.error(f"⚠️ [DB Error] Stock 연결 실패: {e}")
+
+    async def save_market_log(self, category, title, content, sentiment, original_url, sectors=None, topics=None):
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "category": category, 
+                    "title": title, 
+                    "content": content, 
+                    "sentiment": sentiment, 
+                    "original_url": original_url,
+                    "sectors": sectors, # ✅ New
+                    "topics": topics    # ✅ New
+                }
+                async with session.post("http://127.0.0.1:8000/analysis/market", json=payload) as resp:
+                    if resp.status != 200: logger.error(f"⚠️ [DB Error] Market 저장 실패: {await resp.text()}")
+        except Exception as e: logger.error(f"⚠️ [DB Error] Market 연결 실패: {e}")

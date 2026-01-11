@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
 from common.config import settings
+import pytz
+from worker.modules.ai.prompts import get_briefing_prompt
 
 class GeminiSearchPro:
     def __init__(self):
@@ -28,7 +30,7 @@ class GeminiSearchPro:
             )
         )
 
-    async def search_and_summarize(self, query, link_keyword=None, mode='KR_MID'):
+    async def search_and_summarize(self, query, link_keyword=None, mode='KR_MID', original_url=None, post_time=None):
         """
         Broadcasting Logic (KR/US x Opening/Mid/Close)
         """
@@ -37,7 +39,6 @@ class GeminiSearchPro:
         print(f"🧐 [Gemini Pro] 심층 브리핑 생성 중... '{query}' (Mode: {mode})")
 
         # 🕒 [Timezone Calculation]
-        import pytz
         utc_now = datetime.now(pytz.utc)
         ny_tz = pytz.timezone('America/New_York')
         kr_tz = pytz.timezone('Asia/Seoul')
@@ -49,132 +50,25 @@ class GeminiSearchPro:
         kr_str = kr_time.strftime("%H:%M")
         today_full = kr_time.strftime("%Y년 %m월 %d일 %A") # 한국 기준 날짜
 
-        # 헤더 타이틀을 Python에서 직접 주입 (AI 날짜 혼동 방지)
-        header_title = None
+        # ✅ [시간 포맷팅] post_time이 넘어오면 (트럼프 등) 예쁘게 변환
+        post_time_str = None
+        if post_time:
+            try:
+                # ISO 문자열 (2026-01-11T03:25:00Z 등) 파싱 시도
+                # Z가 있으면 replace로 날리고 처리 (간단 버전)
+                dt_str = post_time.replace('Z', '+00:00')
+                dt_obj = datetime.fromisoformat(dt_str)
+                # 한국 시간으로 변환
+                dt_kr = dt_obj.astimezone(kr_tz)
+                post_time_str = dt_kr.strftime("%Y년 %m월 %d일 %A %H:%M (KST)")
+            except:
+                # 파싱 실패하면 그냥 원본 사용
+                post_time_str = str(post_time)
 
-        # 기본 공통 Rule
-        base_rule = f"""
-        [Target News Date] Focus on the verifiable LATEST real-time news.
-        [Language] Korean (한국어)
-        [Tone] Professional, Concise, Insightful (Investment Analyst Style)
-        [Formatting Rules]
-        - **NO HEADERS**: Do NOT include a main title (e.g. "Briefing"). Start directly with the first section.
-        - Do NOT use Markdown headers (#, ##).
-        - Use distinct emojis for headers.
-        - **STRICTLY FORBIDDEN**: Do NOT use bold text (**). Write EVERYTHING in plain text.
-        - **Keep it Concise**: Max 3-4 bullet points per section. Avoid long paragraphs.
-        """
+        # 🤖 [AI 지시사항] - 외부 파일(prompts.py)에서 가져옴
+        header_title, prompt = get_briefing_prompt(mode, query, today_full, ny_str, kr_str, post_time_str=post_time_str)
 
-        # ==============================================================================
-        # 🇰🇷 한국장 프롬프트 (KR)
-        # ==============================================================================
-        if mode == 'KR_OPENING':
-            header_title = f"🇰🇷 한국 증시 장 시작전 브리핑 ({today_full})"
-            prompt = f"""
-            {base_rule}
-            [Task] Search for "{query}" and write a 'Market Opening Briefing' for Korea.
-            
-            [Structure]
-            1. 📅 [오늘의 일정]
-               - Key economic events, earnings releases, or policy announcements today.
-            2. 📈 [시장 전망]
-               - Expected market flow based on overnight US market and global sentiment.
-            3. ⚠️ [리스크 및 변수]
-               - Negative factors, exchange rate risks, or geopolitical issues.
-            4. 🧐 [관전 포인트]
-               - Sectors or themes to watch closely today.
-            """
-            
-        elif mode == 'KR_MID':
-            header_title = f"🇰🇷 한국 증시 장중 브리핑 ({today_full})"
-            prompt = f"""
-            {base_rule}
-            [Task] Search for "{query}" and write a 'Mid-Day Market Briefing' for Korea.
-            
-            [Structure]
-            1. 📈 [오전 상승 주도]
-               - Top performing sectors/themes and WHY they are rising.
-            2. 📉 [오전 약세 흐름]
-               - Weak sectors and reasons for the decline.
-            3. 🚀 [특징주 코멘트]
-               - Individual stocks with significant news/movement (Top 2-3).
-            4. 📝 [장중 시황 요약]
-               - Summary of KOSPI/KOSDAQ flow and Foreigner/Institution supply status.
-            """
-
-        elif mode == 'KR_CLOSE':
-            header_title = f"🇰🇷 한국 증시 마감 브리핑 ({today_full})"
-            prompt = f"""
-            {base_rule}
-            [Task] Search for "{query}" and write a 'Market Closing Briefing' for Korea.
-            
-            [Structure]
-            1. 🏁 [마감 총평]
-               - Summary of KOSPI/KOSDAQ closing levels and main drivers.
-            2. 🏆 [오늘의 승자/패자]
-               - Best/Worst performing sectors analysis.
-            3. 💡 [내일의 투자 아이디어]
-               - Based on today's flow, what should we prepare for tomorrow?
-            """
-
-        # ==============================================================================
-        # 🇺🇸 미국장 프롬프트 (US)
-        # ==============================================================================
-        elif mode == 'US_OPENING':
-            # ✅ [수정] Python에서 헤더 직접 생성 (시간 강제 주입)
-            header_title = f"🇺🇸 미국 증시 장 시작전 브리핑 ({today_full})\n\n[기준: 미 동부시간 {ny_str} / 한국시간 {kr_str}]"
-            
-            prompt = f"""
-            {base_rule}
-            [Task] Search for "{query}" and write a 'Market Opening Briefing' for US Market.
-            
-            [Structure]
-            1. 🌅 [오늘의 이슈 & 전망]
-               - Key macro events (Fed, CPI, etc.) and market outlook for today.
-            2. 📊 [유망/하락 예상 섹터]
-               - Which sectors are expected to be strong/weak based on pre-market data?
-            3. ⚠️ [투자자 유의사항]
-               - Volatility risks, Bond yields, or specific stock warnings.
-            4. 💡 [장초반 대응 전략] (Action Plan)
-               - Practical advice: "Buy on dip", "Watch and wait", or "Focus on Tech".
-            """
-
-        elif mode == 'US_MID':
-            header_title = f"🇺🇸 미국 증시 장중 브리핑 ({today_full})\n\n[기준: 미 동부시간 {ny_str} / 한국시간 {kr_str}]"
-            prompt = f"""
-            {base_rule}
-            [Task] Search for "{query}" and write a 'Mid-Day Briefing' for US Market.
-            
-            [Structure]
-            1. 📝 [오전장 요약]
-               - Summary of market flow from Opening to now (Gap-up/down, Reversal, etc.).
-            2. 🚀 [특징주 & 수급]
-               - Stocks with massive volume or price change today.
-            3. 💡 [남은 시간 대응법] (Action Plan)
-               - How to handle the rest of the trading session? (Profit taking / Bargain hunting).
-            """
-
-        elif mode == 'US_CLOSE':
-            header_title = f"🇺🇸 미국 증시 마감 브리핑 ({today_full})\n\n[기준: 미 동부시간 {ny_str} / 한국시간 {kr_str}]"
-            prompt = f"""
-            {base_rule}
-            [Task] Search for "{query}" and write a 'Market Closing Briefing' for US Market.
-            
-            [Structure]
-            1. 🏁 [마감 이슈 & 원인]
-               - Why did the market rise/fall today? (Main drivers).
-            2. 🚀 [오늘의 급등/급락]
-               - Top gainers and losers in major sectors.
-            3. 🎓 [오늘의 교훈] (Lessons)
-               - What should investors learn from today's market?
-            4. 🌙 [내일 준비 & 애프터마켓]
-               - Key events to watch for tomorrow or After-hours movers.
-            """
-
-        else:
-            prompt = base_rule + f"\n[Task] Summarize the latest news for: {query}"
-
-        # 🚀 실행
+        # 🚀 실행 및 파싱 (Run & Parse)
         try:
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(None, self._generate_sync, prompt)
@@ -182,27 +76,150 @@ class GeminiSearchPro:
             if response and response.text:
                 text = response.text.strip()
                 
-                # ✅ [헤더 병합] Python에서 생성한 정밀 타이틀을 붙여넣기
+                # 🚨 [Noise Filter]
+                if "SKIP" in text and len(text) < 10:
+                    return {
+                        "summary": "SKIP",
+                        "sentiment": "Neutral",
+                        "link": ""
+                    }
+
+                # 🧠 AI 감성 판단 파싱 (Sentiment Parsing)
+                sentiment = "Neutral"
+                if "[Sentiment: Positive]" in text:
+                    sentiment = "Positive"
+                    text = text.replace("[Sentiment: Positive]", "").strip()
+                elif "[Sentiment: Negative]" in text:
+                    sentiment = "Negative"
+                    text = text.replace("[Sentiment: Negative]", "").strip()
+                elif "[Sentiment: Neutral]" in text:
+                    sentiment = "Neutral"
+                    text = text.replace("[Sentiment: Neutral]", "").strip()
+
+                # 🏷️ [Metadata Parsing] (Sectors & Topics)
+                sectors = None
+                topics = None
+                
+                if "[Sectors:" in text:
+                    try:
+                        part = text.split("[Sectors:")[1].split("]")[0]
+                        sectors = part.strip()
+                        text = text.replace(f"[Sectors:{part}]", "").strip()
+                    except: pass
+                    
+                if "[Topics:" in text:
+                    try:
+                        part = text.split("[Topics:")[1].split("]")[0]
+                        topics = part.strip()
+                        text = text.replace(f"[Topics:{part}]", "").strip()
+                    except: pass
+
+                # ✅ [헤더 병합]
                 if header_title:
-                    # AI가 혹시나 또 제목을 만들었을 수 있으므로, 첫 줄이 '미국 증시' 등으로 시작하면 제거 시도 (선택적)
-                    # 여기서는 가장 확실한 방법인 "Bold 제거" 및 "헤더 결합"만 수행
                     text = f"{header_title}\n\n{text}"
                 
-                # 🧹 [후처리] AI가 말을 안 듣고 Bold를 썼을 경우 강제 제거
+                # 🧹 [후처리]
                 text = text.replace("**", "")
                 
                 # 링크 생성
-                target_q = link_keyword if link_keyword else query
-                encoded_query = target_q.replace(" ", "+")
-                final_link = f"https://www.google.com/search?q={encoded_query}&tbm=nws"
+                if original_url:
+                    final_link = original_url
+                else:
+                    target_q = link_keyword if link_keyword else query
+                    encoded_query = target_q.replace(" ", "+")
+                    final_link = f"https://www.google.com/search?q={encoded_query}&tbm=nws"
 
                 return {
                     "summary": text,
                     "link": final_link,
-                    "sentiment": "Neutral"
+                    "sentiment": sentiment,
+                    "sectors": sectors, # ✅ New
+                    "topics": topics    # ✅ New
                 }
             return None
 
         except Exception as e:
             print(f"⚠️ [Gemini Pro] 호출 실패: {e}")
+            return None
+
+    async def analyze_report_file(self, source, title, file_path):
+        """
+        주간 리포트(PDF) 파일 기반 심층 분석 (Multimodal)
+        """
+        if not self.client: return None
+        
+        from worker.modules.ai.prompts import get_report_analysis_prompt
+        # 프롬프트는 텍스트 입력 없이 지침만 가져옴 (is_file_mode=True)
+        prompt = get_report_analysis_prompt(source, text="", is_file_mode=True)
+        
+        print(f"🧠 [Gemini Pro] 리포트 파일 분석 중... [{source}] {title}")
+        
+        try:
+            # 1. Upload File with 'genai-Client' compatible way
+            # Note: google.genai V2 Client uses client.files.upload
+            loop = asyncio.get_running_loop()
+            
+            # Helper for synchronous file upload
+            def upload_and_generate():
+                with open(file_path, "rb") as f:
+                    uploaded_file = self.client.files.upload(file=f, config={'mime_type': 'application/pdf'})
+                
+                # Wait for processing? Usually PDF is fast, but larger video needs wait. 
+                # For PDF, immediate generation usually works or we wait for STATE==ACTIVE.
+                # Assuming simple upload works for now.
+                
+                response = self.client.models.generate_content(
+                    model='gemini-3-pro-preview',
+                    contents=[prompt, uploaded_file],
+                    config=types.GenerateContentConfig(temperature=0.2)
+                )
+                return response
+            
+            # Run in executor
+            response = await loop.run_in_executor(None, upload_and_generate)
+            
+            if response and response.text:
+                result_text = response.text.strip()
+                
+                # 🏷️ [Metadata Parsing] (Same Logic)
+                sentiment = "Neutral"
+                sectors = None
+                topics = None
+                
+                if "[Sentiment: Positive]" in result_text: sentiment = "Positive"
+                elif "[Sentiment: Negative]" in result_text: sentiment = "Negative"
+                elif "[Sentiment: Neutral]" in result_text: sentiment = "Neutral"
+                result_text = result_text.replace(f"[Sentiment: {sentiment}]", "").strip()
+
+                if "[Sectors:" in result_text:
+                    try:
+                        part = result_text.split("[Sectors:")[1].split("]")[0]
+                        sectors = part.strip()
+                        result_text = result_text.replace(f"[Sectors:{part}]", "").strip()
+                    except: pass
+                
+                if "[Topics:" in result_text:
+                    try:
+                        part = result_text.split("[Topics:")[1].split("]")[0]
+                        topics = part.strip()
+                        result_text = result_text.replace(f"[Topics:{part}]", "").strip()
+                    except: pass
+                
+                # Clean up leftovers
+                result_text = result_text.replace("[METADATA]", "").strip()
+                result_text = result_text.replace("------------------------------", "").strip()
+                # Remove hallucinated link placeholders if any
+                if "🔗 [관련 뉴스]()" in result_text:
+                    result_text = result_text.replace("🔗 [관련 뉴스]()", "")
+                
+                result_text = result_text.replace("**", "")
+                
+                return {
+                    "summary": result_text,
+                    "sentiment": sentiment,
+                    "sectors": sectors,
+                    "topics": topics
+                }
+        except Exception as e:
+            print(f"❌ [Gemini Pro] 리포트 파일 분석 실패: {e}")
             return None

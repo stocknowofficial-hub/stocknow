@@ -1,0 +1,20 @@
+[
+  {
+    "chat_id": "8128325560",
+    "name": "H-developer",
+    "is_active": true,
+    "created_at": "2026-01-08T15:16:35"
+  },
+  {
+    "chat_id": "8418853578",
+    "name": "yj o",
+    "is_active": false,
+    "created_at": "2026-01-08T15:22:23"
+  },
+  {
+    "chat_id": "5871278433",
+    "name": "Bk Y",
+    "is_active": false,
+    "created_at": "2026-01-08T23:57:58"
+  }
+]
