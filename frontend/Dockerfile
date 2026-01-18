@@ -1,5 +1,8 @@
 # Base Image
-FROM node:18-alpine
+FROM node:20-alpine
+
+# Install libc6-compat for Next.js on Alpine
+RUN apk add --no-cache libc6-compat
 
 # Working Directory
 WORKDIR /app
