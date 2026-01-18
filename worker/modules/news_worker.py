@@ -21,7 +21,7 @@ class NewsWorker:
         """백엔드에서 최근 분석 로그(7일치)를 가져와서 문자열로 변환"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get("http://127.0.0.1:8000/analysis/market/recent?days=7") as resp:
+                async with session.get(f"{settings.BACKEND_URL}/analysis/market/recent?days=7") as resp:
                     if resp.status == 200:
                         logs = await resp.json()
                         if not logs: return None
@@ -52,7 +52,7 @@ class NewsWorker:
                     "related_code": related_code,
                     "price_info": price_info
                 }
-                async with session.post("http://127.0.0.1:8000/analysis", json=payload) as resp:
+                async with session.post(f"{settings.BACKEND_URL}/analysis", json=payload) as resp:
                     if resp.status == 200:
                         logger.info(f"💾 [DB Saved] {title} 분석 기록 저장 완료")
                     else:
@@ -177,7 +177,7 @@ class NewsWorker:
         """Main Loop: Redis 메시지 수신 대기"""
         logger.info(f"🚀 [NewsWorker] 시스템 가동 완료 (Target: {getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')})")
         
-        r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        r = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
         pubsub = r.pubsub()
         channel = getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')
         await pubsub.subscribe(channel)
@@ -276,7 +276,7 @@ class NewsWorker:
         try:
             async with aiohttp.ClientSession() as session:
                 payload = {"code": code, "name": name, "price": price, "rate": rate, "summary": summary, "sentiment": sentiment}
-                async with session.post("http://127.0.0.1:8000/analysis/stock", json=payload) as resp:
+                async with session.post(f"{settings.BACKEND_URL}/analysis/stock", json=payload) as resp:
                     if resp.status != 200: logger.error(f"⚠️ [DB Error] Stock 저장 실패: {await resp.text()}")
         except Exception as e: logger.error(f"⚠️ [DB Error] Stock 연결 실패: {e}")
 
@@ -292,6 +292,6 @@ class NewsWorker:
                     "sectors": sectors, # ✅ New
                     "topics": topics    # ✅ New
                 }
-                async with session.post("http://127.0.0.1:8000/analysis/market", json=payload) as resp:
+                async with session.post(f"{settings.BACKEND_URL}/analysis/market", json=payload) as resp:
                     if resp.status != 200: logger.error(f"⚠️ [DB Error] Market 저장 실패: {await resp.text()}")
         except Exception as e: logger.error(f"⚠️ [DB Error] Market 연결 실패: {e}")

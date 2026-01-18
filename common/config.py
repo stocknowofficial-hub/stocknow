@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     
     # [추가된 부분] 모의투자 전용 서버 주소 (URL)
     # 실전투자 때는 .env에서 이 값을 덮어쓰면 됩니다.
+    BACKEND_URL: str = "http://127.0.0.1:8000"
 
     # 모의
     # KIS_BASE_URL: str = "https://openapivts.koreainvestment.com:29443"

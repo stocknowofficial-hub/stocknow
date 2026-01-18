@@ -19,7 +19,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - .:/app  # Live reload for code changes (git pull reflects immediately if uvicorn --reload)
+      - .:/app # Live reload for code changes (git pull reflects immediately if uvicorn --reload)
       - ./data:/app/data # Persist DB
       - ./logs:/app/logs
     env_file:
@@ -43,6 +43,7 @@ services:
       - .env
     environment:
       - REDIS_HOST=redis
+      - BACKEND_URL=http://backend:8000
     depends_on:
       - redis
       - backend
@@ -61,6 +62,7 @@ services:
       - .env
     environment:
       - REDIS_HOST=redis
+      - BACKEND_URL=http://backend:8000
     depends_on:
       - redis
       - backend
@@ -76,9 +78,10 @@ services:
       - .env
     volumes:
       - ./frontend:/app # Link source for updates (Requires rebuild usually for Next.js unless dev mode)
+      - /app/node_modules # ✅ Preserve node_modules from image
       # Note: 'npm start' (Prod) won't reflect code changes without rebuild.
       # Switching to 'npm run dev' for "Hot Reload from Git Pull" experience as requested.
-    command: npm run dev 
+    command: npm run dev
     restart: always
 
 volumes:

@@ -18,7 +18,7 @@ from worker.modules.news_worker import NewsWorker
 # ✅ Logger Setup
 logger = setup_logger("Worker", "logs/worker", "worker.log")
 
-BACKEND_URL = "http://127.0.0.1:8000"
+BACKEND_URL = settings.BACKEND_URL
 
 logger.info(f"📤 [Worker System] 초기화 중... (Backend: {BACKEND_URL})")
 
@@ -179,7 +179,7 @@ async def run_telegram_bot(app):
     """Redis 리스너 (봇 기능과 병행 실행)"""
     logger.info(f"📡 [Bot] Redis 리스너 가동...")
     
-    r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+    r = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
     pubsub = r.pubsub()
     await pubsub.subscribe("news_alert")
     
