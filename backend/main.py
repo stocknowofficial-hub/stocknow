@@ -30,6 +30,7 @@ class SubscriberCreate(BaseModel):
     chat_id: str
     name: str | None = None
     username: str | None = None # ✅ 추가
+    referrer_id: str | None = None # ✅ [New] 추천인 ID
 
 class SubscriberResponse(BaseModel):
     chat_id: str
@@ -40,6 +41,7 @@ class SubscriberDetail(BaseModel):
     username: str | None = None # ✅ 추가
     name: str | None = None
     tier: str # ✅ 추가
+    referrer_id: str | None = None # ✅ [New] Admin 표시용
     expiry_date: datetime | None = None # ✅ 추가
     is_active: bool
     created_at: datetime | None = None
@@ -64,17 +66,19 @@ def create_subscriber(sub: SubscriberCreate, db: Session = Depends(database.get_
         logger.info(f"👤 Subscriber Updated: {db_sub.name} ({db_sub.chat_id})")
         return db_sub
     
-    # 신규 생성
+    # 신규 생성 (🎁 2주 무료 체험 적용)
     new_sub = models.Subscriber(
         chat_id=sub.chat_id, 
         name=sub.name,
-        username=sub.username, # ✅ 추가
-        tier="FREE" # 기본값
+        username=sub.username,
+        tier="PRO", # ✅ 기본값 PRO (체험판)
+        referrer_id=sub.referrer_id, # ✅ [New] 신규 가입 시에만 추천인 기록
+        expiry_date=datetime.now() + timedelta(days=14) # ✅ 14일 뒤 만료
     )
     db.add(new_sub)
     db.commit()
     db.refresh(new_sub)
-    logger.info(f"✨ New Subscriber: {new_sub.name} ({new_sub.chat_id})")
+    logger.info(f"✨ New Subscriber (Trial Logic): {new_sub.name} ({new_sub.chat_id}) - Expires: {new_sub.expiry_date}")
     return new_sub
 
 @app.get("/subscribers", response_model=List[str])
@@ -93,6 +97,7 @@ class SubscriberUpdate(BaseModel):
     tier: str | None = None
     username: str | None = None
     name: str | None = None
+    expiry_date: datetime | None = None # ✅ Expiry Update Support
 
 @app.put("/subscribers/{chat_id}")
 def update_subscriber(chat_id: str, update: SubscriberUpdate, db: Session = Depends(database.get_db)):
@@ -104,6 +109,7 @@ def update_subscriber(chat_id: str, update: SubscriberUpdate, db: Session = Depe
     if update.tier is not None: sub.tier = update.tier
     if update.username is not None: sub.username = update.username
     if update.name is not None: sub.name = update.name
+    if update.expiry_date is not None: sub.expiry_date = update.expiry_date
     
     # Tier 변경 시 만료일 처리 로직 (예: PRO -> 30일 뒤, FREE -> Null)은 프론트에서 처리하거나 여기서 처리
     # 일단은 단순 Field Update만 수행

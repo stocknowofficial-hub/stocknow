@@ -4,6 +4,7 @@ import sys
 import ujson
 import redis.asyncio as redis
 import aiohttp
+from datetime import datetime, timedelta # ✅ Added for Expiry Check
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -35,14 +36,29 @@ async def fetch_recipients():
         logger.error(f"⚠️ [API] 구독자 조회 실패: {e}")
     return []
 
-async def register_subscriber(chat_id, name, username):
+async def register_subscriber(chat_id, name, username, referrer_id=None):
     """구독자 등록 요청"""
     try:
         async with aiohttp.ClientSession() as session:
-            payload = {"chat_id": str(chat_id), "name": name, "username": username}
+            payload = {
+                "chat_id": str(chat_id), 
+                "name": name, 
+                "username": username,
+                "referrer_id": referrer_id # ✅ Pass Referrer
+            }
             async with session.post(f"{BACKEND_URL}/subscribers", json=payload) as resp:
                 return resp.status == 200
     except Exception:
+        return False
+
+async def backend_update_subscriber(chat_id, payload):
+    """구독자 정보 업데이트 (Backend PUT)"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.put(f"{BACKEND_URL}/subscribers/{chat_id}", json=payload) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.error(f"⚠️ [API] Update 실패: {e}")
         return False
 
 # Command Handler: /start
@@ -54,10 +70,108 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ✅ Username 추출 (@붙임)
     username = f"@{user.username}" if user.username else None
     
-    success = await register_subscriber(chat_id, name, username)
+    # ✅ [Referral] 추천인 코드 파싱 (start ref_12345)
+    # ✅ [Referral] 추천인 코드 파싱 (start ref_12345)
+    referrer_id = None
+    if context.args and context.args[0].startswith("ref_"):
+        try:
+            ref_code = context.args[0].replace("ref_", "")
+            # 자기 자신 추천 방지
+            if ref_code != str(chat_id):
+                referrer_id = ref_code
+                logger.info(f"🔗 [Referral] {name} invited by {referrer_id}")
+        except: pass
+
+    # ✅ [Advanced Payment] 시크릿 링크 처리 (req_1m_SECRET...)
+    # t.me/bot?start=req_1m_SECRET123
+    secret_plan = None
+    if context.args and context.args[0].startswith("req_"):
+        arg = context.args[0]
+        # Common Config에서 시크릿 키 검증
+        for plan, secret in settings.PAYMENT_SECRETS.items():
+            # arg format: {plan}_{secret} (e.g. req_1m_SECRET123)
+            expected_arg = f"{plan}_{secret}"
+            if arg == expected_arg:
+                secret_plan = plan
+                break
+    
+    if secret_plan:
+        # 1. 만료일 계산
+        now = datetime.now()
+        if secret_plan == "req_1m":
+            days = 33 # 1개월 + 3일 여유
+            plan_name = "1개월권"
+        elif secret_plan == "req_6m":
+            days = 186 # 6개월 (3+3 이벤트) + 6일 여유
+            plan_name = "6개월권 (3+3 이벤트)"
+        elif secret_plan == "req_1y":
+            days = 368 # 1년 + 3일 여유
+            plan_name = "1년권"
+        else:
+            days = 14 # Default
+            plan_name = "체험권"
+
+        new_expiry = now + timedelta(days=days)
+        
+        # 2. Backend Update (Register if new, Update if exists)
+        # 먼저 등록 시도 (신규일 수 있으므로)
+        await register_subscriber(chat_id, name, username, referrer_id)
+        
+        # 그리고 만료일 업데이트 (강제 덮어쓰기)
+        payload = {
+            "tier": "PRO",
+            "is_active": True,
+            "expiry_date": new_expiry.isoformat()
+        }
+        if await backend_update_subscriber(chat_id, payload):
+            success_msg = (
+                f"🎉 **{plan_name} 인증 성공!**\n\n"
+                f"✅ 만료일이 **{new_expiry.strftime('%Y-%m-%d')}**까지 연장되었습니다.\n"
+                f"VIP 채널에서 최고의 정보를 받아보세요!"
+            )
+            await update.message.reply_text(success_msg)
+            
+            # 3. Admin Notification (To Maintainer)
+            # 봇에게 메시지를 보낸 사람에게 답장 보내듯, 
+            # 여기선 편의상 settings.TELEGRAM_CHAT_ID (Admin)가 있다면 거기로 보냄
+            # 없으면 로그만
+            logger.info(f"💰 [Payment] {name} activated {plan_name}")
+            
+            # VIP 채널 링크 발송
+            try:
+                invite = await context.bot.create_chat_invite_link(settings.TELEGRAM_VIP_CHANNEL_ID, member_limit=1)
+                await update.message.reply_text(f"👉 [VIP 채널 입장]\n{invite.invite_link}")
+            except: pass
+            
+            return # 종료 (Start 로직 건너뜀)
+        else:
+            await update.message.reply_text("⚠️ 처리 중 오류가 발생했습니다. 관리자에게 문의해주세요.")
+            return
+
+    success = await register_subscriber(chat_id, name, username, referrer_id)
     if success:
-        await update.message.reply_text(f"✅ 환영합니다, {name}님!\nReason Hunter 구독이 시작되었습니다. 🚀\n이제 실시간 AI 분석 알림을 받으실 수 있습니다.")
-        logger.info(f"👤 [New User] {name} ({chat_id}) 등록 완료")
+        # 🎁 VIP 채널 초대 링크 생성 (1회용)
+        try:
+            invite_link = await context.bot.create_chat_invite_link(
+                chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, 
+                member_limit=1,
+                expire_date=None # 유효기간 없음 (들어올 때까지) or datetime.now() + 1 hour
+            )
+            link_url = invite_link.invite_link
+        except Exception as e:
+            logger.error(f"⚠️ 초대 링크 생성 실패: {e}")
+            link_url = "https://t.me/+..." # Fallback (혹은 관리자 문의)
+
+        msg = (
+            f"🎉 환영합니다, {name}님!\n\n"
+            f"Stock Now VIP(Pro) 2주 무료 체험이 시작되었습니다.\n"
+            f"지금 바로 입장해서 실시간AI 분석 정보를 받아보세요!\n\n"
+            f"유명한 증시 주간 리포트, 트럼프 SNS 분석, 일일 브리핑 등 수많은 정보 제공!\n\n"
+            f"👉 [VIP 채널 입장하기]\n{link_url}\n\n"
+            f" 주의: 알림을 계속 받으려면 이 봇을 차단하지 마세요!"
+        )
+        await update.message.reply_text(msg)
+        logger.info(f"👤 [New User] {name} ({chat_id}) 등록 완료 & 초대장 발송")
     else:
         await update.message.reply_text("⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
@@ -74,7 +188,7 @@ async def run_telegram_bot(app):
             if message['type'] == 'message':
                 try:
                     data_json = ujson.loads(message['data'])
-                    await send_message_to_user(app.bot, data_json)
+                    await broadcast_message(app.bot, data_json)
                 except Exception as e:
                     logger.error(f"⚠️ [Bot] 메시지 처리 에러: {e}")
     except asyncio.CancelledError:
@@ -82,15 +196,10 @@ async def run_telegram_bot(app):
     finally:
         await r.aclose()
 
-async def send_message_to_user(bot, message_data):
-    """동적 구독자에게 메시지 전송"""
+async def broadcast_message(bot, message_data):
+    """채널 브로드캐스팅 (Pro -> All, Free -> Partial)"""
     try:
-        # 1. 구독자 목록 최신화 (매번 조회 or 캐싱 가능)
-        recipient_list = await fetch_recipients()
-        if not recipient_list:
-            # 백엔드 죽었을 때 대비용 하드코딩 (옵션)
-            raw_ids = settings.TELEGRAM_CHAT_ID.split(',')
-            recipient_list = [x.strip() for x in raw_ids if x.strip()]
+        # 1. 구독자 조회 로직 제거 (채널 전송으로 변경)
             
         msg_type = message_data.get("type")
         name = message_data.get('name', '알 수 없음')
@@ -103,20 +212,35 @@ async def send_message_to_user(bot, message_data):
         #  기존 send_message_to_user 내부 로직은 살려야 함.)
         
         # (전략: 기존 포맷팅 로직 복사)
+        # --------------------------------------------------------------------------
+        # 1. 텍스트 생성 (VIP vs Free)
+        # --------------------------------------------------------------------------
+        text_vip = ""
+        text_free = ""
+        
+        upgrade_link = "\n👉 **[AI 분석 정보 받기]**\nhttps://t.me/Stock_Now_Bot?start=subscribe"
+
         if msg_type in ["CONDITION", "CONDITION_US"]:
             price = message_data.get('price', '0')
             rate = message_data.get('rate', '0')
             emoji = "🚀" if float(rate) > 0 else "💧"
             header = f"🇺🇸 [미국 포착]" if msg_type == "CONDITION_US" else f"🔥 [국내 포착]"
-            text = f"{header} {name}\n{emoji} 등락률: {rate}%\n💰 현재가: {price}\n#속보"
-
+            
+            # VIP: Full Text
+            text_vip = f"{header} {name}\n{emoji} 등락률: {rate}%\n💰 현재가: {price}\n#속보"
+            # Free: Same for simple alerts (or add teaser if analysis exists? Condition usually has no analysis)
+            text_free = text_vip # Condition alerts are simple enough to share? Or hide price? User didn't specify for Condition.
+            # User example was for "AI Analysis". Condition alerts might be separate.
+            # But let's keep them same for now unless specified.
+            
         elif msg_type == "NEWS_SUMMARY":
             summary = message_data.get('summary', '')
             sentiment = message_data.get('sentiment', 'Neutral')
             link = message_data.get('link', '')
-            
+
             if "브리핑" in name:
-                text = f"{name}\n------------------------------\n{summary}\n------------------------------\n🔗 [전체 현황판 보기]({link})\n"
+                text_vip = f"{name}\n------------------------------\n{summary}\n------------------------------\n🔗 [전체 현황판 보기]({link})\n"
+                text_free = text_vip # ✅ 브리핑은 Free 채널에도 전체 공개 (User Request) 
             else:
                 sent_emoji = "😐"
                 if "Positive" in sentiment or "호재" in sentiment: sent_emoji = "😍 (호재)"
@@ -127,45 +251,144 @@ async def send_message_to_user(bot, message_data):
                 market_info = ""
                 if price and rate:
                     rate_emoji = "🚀" if float(rate) > 0 else "💧"
-                    market_info = f"{rate_emoji} 등락률: {rate}% | 💰 현재가: {price}\n------------------------------\n"
+                    market_info = f"{rate_emoji} 등락률: {rate}% | 💰 현재가: {price}\n"
                 
                 judgment_line = f"📊 판단: {sent_emoji}\n" if sentiment != "Neutral" else ""
-                
-                # Link Label Customization
                 link_label = "관련 뉴스"
-                if "pdf" in link.lower() or "📑" in name:
-                    link_label = "Original Report"
+                if "pdf" in link.lower() or "📑" in name: link_label = "Original Report"
 
                 if sentiment == "Unknown" or not summary:
-                    text = f"🚨 [수급 포착] {name}\n------------------------------\n{market_info}⚠️ 특이사항 없음 (최근 24시간 내 관련 뉴스 부재)\n------------------------------\n🔗 [직접 검색 확인]({link})\n"
+                    text_vip = f"🚨 [수급 포착] {name}\n------------------------------\n{market_info}------------------------------\n⚠️ 특이사항 없음\n🔗 [직접 검색 확인]({link})\n"
+                    text_free = text_vip 
                 else:
-                    text = f"💡 [AI 심층분석] {name}\n------------------------------\n{market_info}{summary}\n------------------------------\n{judgment_line}🔗 [{link_label}]({link})\n"
+                    # VIP: Full Analysis
+                    text_vip = f"💡 [AI 심층분석] {name}\n------------------------------\n{market_info}------------------------------\n{summary}\n------------------------------\n{judgment_line}🔗 [{link_label}]({link})\n"
+                    
+                    # Free Channel Logic
+                    if "pdf" in link.lower() or "리포트" in name or "Report" in name:
+                        # 📑 리포트 Teaser: 첫 번째 문단만 추출
+                        # summary의 첫 줄(제목 등) + 첫 문단 정도?
+                        # 안전하게 줄바꿈 2번 기준으로 자름
+                        teaser_text = summary.split('\n\n')[0] 
+                        if len(teaser_text) < 50: # 너무 짧으면 하나 더
+                            parts = summary.split('\n\n')
+                            if len(parts) > 1: teaser_text += "\n\n" + parts[1]
+                        
+                        upgrade_btn = "👉 [유망 종목 정보 받기]" if "Kiwoom" in name else "👉 [유망 종목 정보 받기]" # User requested specific button text? "유망 종목 정보 받기"
+
+                        text_free = f"💡 [AI 심층분석] {name}\n------------------------------\n{teaser_text}\n...\n------------------------------\n🔗 [{link_label}]({link})\n\n{upgrade_btn}\nhttps://t.me/Stock_Now_Bot?start=upgrade"
+                    else:
+                        # 일반 종목 분석 Teaser: 내용 숨김
+                        text_free = f"💡 [AI 심층분석] {name}\n------------------------------\n{market_info}{upgrade_link}\n"
 
         elif msg_type == "SNS_SUMMARY":
-            # 트럼프 분석 전용 포맷
             summary = message_data.get('summary', '')
             link = message_data.get('link', '')
-            # 제목 이미 "🏛️ [트럼프 긴급 포착]" 등으로 설정되어 옴
-            text = f"{name}\n------------------------------\n{summary}\n------------------------------\n🔗 [원문 보기]({link})\n"
+            
+            # VIP: Full
+            text_vip = f"{name}\n------------------------------\n{summary}\n------------------------------\n🔗 [원문 보기]({link})\n"
+            
+            # Free: Teaser (Hide Summary)
+            text_free = f"{name}\n------------------------------\n🔒 (AI 분석 내용은 Premium 전용)\n------------------------------\n🔗 [원문 보기]({link})\n{upgrade_link}"
 
-        elif msg_type == "MARKET_BRIEFING":
-            return 
+        # --------------------------------------------------------------------------
+        # 2. 전송 로직 (Dual Channel)
+        # --------------------------------------------------------------------------
+        
+        # 1) VIP Channel
+        if text_vip:
+            try:
+                msg = await bot.send_message(
+                    chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, 
+                    text=text_vip, 
+                    disable_web_page_preview=True
+                )
+                if message_data.get('should_pin', False):
+                    try: await bot.pin_chat_message(settings.TELEGRAM_VIP_CHANNEL_ID, msg.message_id) 
+                    except: pass
+                logger.info(f"🚀 [Broadcast] VIP 전송 완료: {name}")
+            except Exception as e:
+                logger.error(f"❌ VIP 전송 실패: {e}")
 
-        # 전송 로직
-        if text:
-            should_pin = message_data.get('should_pin', False)
-            for chat_id in recipient_list:
-                try:
-                    sent_msg = await bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True)
-                    if should_pin:
-                        try:
-                            await bot.pin_chat_message(chat_id, sent_msg.message_id)
-                        except: pass
-                except Exception: pass
-            logger.info(f"🚀 [Bot] 전송 완료: {name} (To {len(recipient_list)} users)")
+        # 2) Free Channel
+        if text_free:
+            try:
+                await bot.send_message(
+                    chat_id=settings.TELEGRAM_FREE_CHANNEL_ID, 
+                    text=text_free, 
+                    disable_web_page_preview=True
+                )
+                logger.info(f"🚀 [Broadcast] Free 전송 완료: {name}")
+            except Exception as e:
+                logger.error(f"❌ Free 전송 실패: {e}")
 
     except Exception as e:
         logger.error(f"❌ [Bot] 포맷팅 에러: {e}")
+
+async def run_expiry_checker(bot):
+    """(Scheduler) 매일 유료 기간 만료자를 확인하고 강퇴"""
+    while True:
+        logger.info("📅 [Scheduler] Daily Expiry Check Started...")
+        try:
+            # 1. Fetch All Users from Backend
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{BACKEND_URL}/subscribers/detail") as resp:
+                    if resp.status == 200:
+                        users = await resp.json()
+                        for u in users:
+                            # Check PRO/VIP & Expiry
+                            if u.get('tier') in ['PRO', 'VIP'] and u.get('expiry_date'):
+                                expiry_str = u['expiry_date'] 
+                                # Backend returns ISO format (e.g. 2026-01-25T...)
+                                expiry_dt = datetime.fromisoformat(expiry_str)
+                                
+                                if expiry_dt < datetime.now():
+                                    chat_id = u['chat_id']
+                                    name = u.get('name', 'User')
+                                    logger.info(f"⏳ [Expiry] 체험 만료 감지: {name} ({chat_id})")
+                                    
+                                    # Action 1: Create Free Invite Link
+                                    free_link = "https://t.me/StockNow_KR" # Default
+                                    try:
+                                        invite = await bot.create_chat_invite_link(
+                                            chat_id=settings.TELEGRAM_FREE_CHANNEL_ID,
+                                            member_limit=1
+                                        )
+                                        free_link = invite.invite_link
+                                    except: pass
+
+                                    # Action 2: Alert to Admin (No Kick)
+                                    # 사장님께 알림 발송 (봇 DM)
+                                    try:
+                                        # Admin ID가 설정되어 있어야 함 (settings.TELEGRAM_CHAT_ID)
+                                        # 혹은 VIP 채널 관리자에게? 일단 로그만 찍고, 
+                                        # 기능 구현: "봇이 사장님께 DM 보내기" (Chat ID 필요)
+                                        # 여기서는 일단 사용자에게 "만료됨" 알림만 보냄 (Kick X)
+                                        
+                                        msg = (
+                                            f"📉 **이용 기간이 만료되었습니다.**\n"
+                                            f"({expiry_str.split('T')[0]} 만료)\n\n"
+                                            f"포스타입 정기 결제자라면, 곧 관리자 확인 후 연장됩니다.\n"
+                                            f"결제가 중단되었다면 곧 입장이 제한될 수 있습니다.\n\n"
+                                            f"👉 **[연장 신청 / 문의]**\n"
+                                            f"https://t.me/Stock_Now_Bot?start=req_sub"
+                                        )
+                                        await bot.send_message(chat_id=chat_id, text=msg)
+                                        logger.info(f"📉 [Expiry] 만료 알림 발송: {name}")
+                                        
+                                    except: pass
+
+                                    # Action 3: Mark Tier as 'EXPIRED' (Optional, for Frontend filtering)
+                                    # But keep is_active=True for now so they don't lose access immediately
+                                    # payload = {"tier": "EXPIRED"} 
+                                    # await backend_update_subscriber(chat_id, payload)
+
+                                        
+        except Exception as e:
+            logger.error(f"⚠️ [Scheduler] 에러 발생: {e}")
+        
+        # 24시간 대기
+        await asyncio.sleep(3600 * 24)
 
 # ==============================================================================
 # 🚀 메인 실행기 (Application 방식)
@@ -209,8 +432,9 @@ async def main():
     
     # Run forever
     await asyncio.gather(
-        run_telegram_bot(app), # Redis Listener
-        worker.run()           # News Worker
+        run_telegram_bot(app),   # Redis Listener
+        worker.run(),            # News Worker
+        run_expiry_checker(app.bot) # ✅ Expiry Scheduler
         # Polling is already running via updater
     )
     

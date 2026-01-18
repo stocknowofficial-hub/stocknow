@@ -43,15 +43,15 @@ export default function Home() {
 
   if (!mounted) return null; // Hydration fix
 
-  // 텔레그램 봇 이름 설정 (사용자가 교체해야 함)
-  const BOT_USERNAME = "My_Reason_Hunter_Bot";
+  // 텔레그램 봇 이름 설정
+  const BOT_USERNAME = "Stock_Now_Bot";
   const TELEGRAM_LINK = `https://t.me/${BOT_USERNAME}?start=web_user`;
 
   return (
     <IonPage>
       <IonHeader>
         <IonToolbar>
-          <IonTitle>Reason Hunter 🚀</IonTitle>
+          <IonTitle>Stock Now 🚀</IonTitle>
         </IonToolbar>
       </IonHeader>
       <IonContent className="ion-padding" style={{ '--background': '#f0f2f5' }}>

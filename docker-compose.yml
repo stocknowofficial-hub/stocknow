@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # 1. Redis (Message Broker)
   redis:
     image: redis:alpine
     container_name: reason_redis
@@ -8,6 +9,77 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    restart: always
+
+  # 2. Backend (FastAPI)
+  backend:
+    build: .
+    container_name: reason_backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app  # Live reload for code changes (git pull reflects immediately if uvicorn --reload)
+      - ./data:/app/data # Persist DB
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    restart: always
+
+  # 3. Worker (Telegram Bot)
+  worker:
+    build: .
+    container_name: reason_worker
+    command: python -m worker.main
+    volumes:
+      - .:/app
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+      - backend
+    restart: always
+
+  # 4. Watcher (Scraper & AI)
+  watcher:
+    build: .
+    container_name: reason_watcher
+    command: python -m watcher.main
+    volumes:
+      - .:/app
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+      - backend
+    restart: always
+
+  # 5. Frontend (Next.js)
+  frontend:
+    build: ./frontend
+    container_name: reason_frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./frontend:/app # Link source for updates (Requires rebuild usually for Next.js unless dev mode)
+      # Note: 'npm start' (Prod) won't reflect code changes without rebuild.
+      # Switching to 'npm run dev' for "Hot Reload from Git Pull" experience as requested.
+    command: npm run dev 
+    restart: always
 
 volumes:
   redis_data:

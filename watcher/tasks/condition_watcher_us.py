@@ -17,7 +17,7 @@ from watcher.utils.definitions import (
 # =========================================================
 # 👇 [설정]
 POLLING_INTERVAL = 60
-MIN_MARKET_CAP = "70000000" # $100B (단위: 1,000달러 -> 1억 * 1000 = 1000억불)
+MIN_MARKET_CAP = "35000000" # $50B (단위: 1,000달러 -> 1억 * 1000 = 1000억불 -> 3500만 = 350억불? Wait. User said 70000000 is 100B. So 35000000 is 50B).
 TARGET_EXCHANGES = ["NAS", "NYS"]
 MILESTONES = [5.0, 10.0, 15.0, 30.0] 
 # =========================================================
@@ -103,7 +103,8 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                                 "name": item.get('name') or item.get('ename'),
                                 "price": item.get('last') or item.get('price'),
                                 "rate": rate,
-                                "excd": excd
+                                "excd": excd,
+                                "market_cap": float(item.get('valx') or item.get('tomv') or 0) # ✅ 시총 수집
                             })
                         except: continue
                 await asyncio.sleep(0.5)
@@ -136,7 +137,7 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                         payload = {
                             "type": "NEWS_SUMMARY",
                             "name": "🇺🇸 [프리마켓 브리핑]",
-                            "summary": f"오늘 밤 장전 주요 움직임입니다 (±3% 이상 / 시총 1,000억불 이상).\n\n{summary_text}\n...전체 현황판은 아래 링크 클릭",
+                            "summary": f"오늘 밤 장전 주요 움직임입니다 (±3% 이상 / 시총 500억불 이상).\n\n{summary_text}\n...전체 현황판은 아래 링크 클릭",
                             "sentiment": "Neutral",
                             "link": page_url,
                             "should_pin": True # 📌 고정
@@ -178,6 +179,11 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                     name = item['name']
                     rate = float(item['rate'])
                     price = item['price']
+                    market_cap = item.get('market_cap', 0.0)
+
+                    # 🚨 [필터링] AI 저격은 여전히 $100B(7000만) 이상만 타겟팅
+                    if market_cap < 70000000:
+                        continue
                     
                     target_ms = 0.0
                     last_ms = alert_history.get(code, {}).get("last_milestone", 0.0)

@@ -17,7 +17,7 @@ def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=No
     - **DO NOT** include the note if the connection is vague (e.g., "overall market trend", "sector momentum").
     - IF NO STRONG MATCH -> **OMIT THE NOTE ENTIRELY**.
     - **Language:** The citation MUST BE in **KOREAN**.
-    - Format: "(AI Tutor Note: 이 상승은 (날짜) [분석제목]에서 예측한 '핵심내용'과 일치합니다.)"
+    - Format: "(Stock Now Note: 이 상승은 (날짜) [분석제목]에서 예측한 '핵심내용'과 일치합니다.)"
     """
 
     return f"""
@@ -49,7 +49,7 @@ def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=No
     * 엔비디아, 새로운 AI 칩셋 'Blackwell' 출시 발표
     * 월가 목표 주가 상향 조정 (150$ -> 180$)
     * 실적 발표를 앞두고 구글, MS 등 주요 고객사 수요 증가 확인
-    (AI Tutor Note: 이번 상승은 지난 11일 모닝 브리핑에서 언급한 '기술주 랠리' 전망과 일치하는 흐름입니다.)
+    (Stock Now Note: 이번 상승은 지난 11일 모닝 브리핑에서 언급한 '기술주 랠리' 전망과 일치하는 흐름입니다.)
     [Sentiment: Positive]
 
     [Example Output - Failure]
@@ -234,7 +234,7 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
            - **💧 리스크 관리 (Short)**: Specific Sectors/Stocks to avoid.
            - **Action**: Clear advice (e.g., "비중 확대", "관망", "차익 실현").
            
-        5. 💡 [AI Tutor's Insight]
+        5. 💡 [Stock Now's Insight]
            - A witty, professional one-line summary.
         
         [Format Rules]
@@ -283,7 +283,7 @@ def get_report_analysis_prompt(source, text, is_file_mode=False):
         - (Korean)
         3. 📉 [주의할 자산] (Bearish)
         - (Korean)
-        4. 💡 [AI Tutor's Note]
+        4. 💡 [Stock Now's Note]
         - (One-line insight)
 
         [METADATA]
@@ -314,7 +314,7 @@ def get_report_analysis_prompt(source, text, is_file_mode=False):
         - ...
         4. ⚠️ [주의할 섹터]
         - ...
-        5. 💡 [AI Tutor's Note]
+        5. 💡 [Stock Now's Note]
         - ...
 
         [METADATA]

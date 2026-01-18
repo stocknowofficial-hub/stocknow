@@ -14,7 +14,7 @@ from watcher.utils.definitions import check_today_actionable
 # ====================================================
 # [설정] 브리핑 발송 시간표 (HHMM)
 # ====================================================
-SCHEDULE_TIMES = ["0905", "1200", "1600"]
+SCHEDULE_TIMES = ["0800", "1200", "1630"]
 
 async def run_rank_poller(access_token=None):
     """
@@ -97,10 +97,10 @@ async def run_rank_poller(access_token=None):
                         target_time = t
                         print(f"⏰ [KR-Scheduler] 지연 발송 감지! (Schedule: {t}, Now: {current_time})")
                         break
-            
+                        
             if target_time:
                 # 이미 current_status == OPEN 이므로 바로 발송
-                type_map = {"0905": "OPENING", "1200": "MID", "1600": "CLOSE"}
+                type_map = {"0800": "OPENING", "1200": "MID", "1630": "CLOSE"}
                 briefing_type = type_map.get(target_time, "MID")
                 
                 print(f"⏰ [KR-Scheduler] {current_time} -> {briefing_type} 브리핑 요청 발송! (Target: {target_time})")

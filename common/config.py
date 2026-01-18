@@ -30,7 +30,11 @@ class Settings(BaseSettings):
     # 3. Telegram 설정
     # =================================
     TELEGRAM_BOT_TOKEN: str = ""
-    TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_CHAT_ID: str = "" # (Legacy: for Admin/Error logs)
+
+    # [New] Channels
+    TELEGRAM_VIP_CHANNEL_ID: str = ""
+    TELEGRAM_FREE_CHANNEL_ID: str = ""
 
     # [추가] 네이버 API 설정
     NAVER_CLIENT_ID: str = ""
@@ -38,6 +42,14 @@ class Settings(BaseSettings):
 
     # 👇 이거 추가
     GOOGLE_API_KEY: str = ""
+
+    # ✅ [Payment Secrets] 시크릿 링크용 비밀키 (유출 주의)
+    # 실제 운영 시엔 .env로 빼는 것이 좋습니다.
+    PAYMENT_SECRETS: dict = {
+        "req_1m": "SECRET_1M_2026", # 1개월권
+        "req_6m": "SECRET_6M_2026", # 6개월권 (3+3 이벤트)
+        "req_1y": "SECRET_1Y_2026", # 1년권
+    }
 
     class Config:
         env_file = ".env"

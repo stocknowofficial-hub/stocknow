@@ -230,7 +230,9 @@ def check_us_market_open(token):
                 try:
                     tvol = int(output['tvol'])
                     if tvol > 0:
-                        print(f"✅ [US Market] 개장 확인 ({sym} | Date: {data_date} | Vol: {tvol})")
+                        # 30분에 한 번만 로그 출력 (콘솔 도배 방지)
+                        if now_ny.minute % 30 == 0:
+                            print(f"✅ [US Market] 개장 확인 ({sym} | Date: {data_date} | Vol: {tvol})")
                         return True
                 except: pass
         

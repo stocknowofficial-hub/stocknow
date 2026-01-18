@@ -11,6 +11,7 @@ class Subscriber(Base):
     tier = Column(String, default="FREE")        # ✅ FREE, BASIC, PRO
     expiry_date = Column(DateTime, nullable=True)# ✅ 유료 기간 만료일 (Null=무제한/Free)
     payment_cycle = Column(String, nullable=True)# ✅ MONTHLY, YEARLY
+    referrer_id = Column(String, nullable=True)  # ✅ [New] 추천인 Chat ID
     
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
