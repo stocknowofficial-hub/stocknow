@@ -1,6 +1,5 @@
 import asyncio
 import requests
-import cloudscraper # ✅ [추가] Cloudflare Bypass
 import ujson
 from bs4 import BeautifulSoup
 from common.redis_client import redis_client
@@ -15,14 +14,13 @@ BASE_URL = "https://truthsocial.com"
 LAST_POST_REAL_ID = None 
 TRUMP_ACCOUNT_ID = None # API로 조회한 숫자 ID (예: 107...)
 
-# 🚀 CloudScraper 초기화 (브라우저처럼 행동)
-scraper = cloudscraper.create_scraper(
-    browser={
-        'browser': 'chrome',
-        'platform': 'windows',
-        'desktop': True
-    }
-)
+# ✅ [Headers] CloudScraper 대신 일반 헤더 사용 (테스트 성공)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://truthsocial.com/"
+}
 
 async def get_trump_account_id(headers):
     """
@@ -31,8 +29,8 @@ async def get_trump_account_id(headers):
     url = f"{API_BASE_URL}/accounts/lookup?acct={TARGET_HANDLE}"
     try:
         loop = asyncio.get_running_loop()
-        # requests.get -> scraper.get
-        response = await loop.run_in_executor(None, lambda: scraper.get(url, timeout=15))
+        # cloudscraper -> requests
+        response = await loop.run_in_executor(None, lambda: requests.get(url, headers=HEADERS, timeout=15))
         
         if response.status_code == 200:
             data = response.json()
@@ -46,7 +44,7 @@ async def get_trump_account_id(headers):
 
 async def run_trump_watcher():
     global LAST_POST_REAL_ID, TRUMP_ACCOUNT_ID
-    print(f"🇺🇸 [SNS Watcher] 트럼프 전담 마크맨 (CloudScraper Ver.) 가동 중...")
+    print(f"🇺🇸 [SNS Watcher] 트럼프 전담 마크맨 (Requests Ver.) 가동 중...")
 
     # CloudScraper가 알아서 헤더 관리하므로, 기본 Accept만 추가
     # headers = ... (제거)
@@ -67,7 +65,7 @@ async def run_trump_watcher():
             api_url = f"{API_BASE_URL}/accounts/{TRUMP_ACCOUNT_ID}/statuses?exclude_replies=true&limit=1"
             
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, lambda: scraper.get(api_url, timeout=15))
+            response = await loop.run_in_executor(None, lambda: requests.get(api_url, headers=HEADERS, timeout=15))
 
             if response.status_code == 200:
                 posts = response.json()
