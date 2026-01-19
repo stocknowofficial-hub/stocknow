@@ -326,6 +326,7 @@ async def broadcast_message(bot, message_data):
         logger.error(f"❌ [Bot] 포맷팅 에러: {e}")
 
 async def run_expiry_checker(bot):
+
     """(Scheduler) 매일 유료 기간 만료자를 확인하고 강퇴"""
     while True:
         logger.info("📅 [Scheduler] Daily Expiry Check Started...")
@@ -347,42 +348,39 @@ async def run_expiry_checker(bot):
                                     name = u.get('name', 'User')
                                     logger.info(f"⏳ [Expiry] 체험 만료 감지: {name} ({chat_id})")
                                     
-                                    # Action 1: Create Free Invite Link
-                                    free_link = "https://t.me/StockNow_KR" # Default
+                                    # Action 1: Kick (Ban & Unban)
                                     try:
-                                        invite = await bot.create_chat_invite_link(
-                                            chat_id=settings.TELEGRAM_FREE_CHANNEL_ID,
-                                            member_limit=1
-                                        )
-                                        free_link = invite.invite_link
-                                    except: pass
+                                        # VIP 채널에서 추방 (Ban)
+                                        await bot.ban_chat_member(chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, user_id=chat_id)
+                                        # 다시 들어올 수 있게 즉시 Unban
+                                        await bot.unban_chat_member(chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, user_id=chat_id)
+                                        logger.info(f"👢 [Kick] 만료된 사용자 추방 완료: {name}")
+                                    except Exception as e:
+                                        logger.error(f"⚠️ [Kick Failed] 추방 실패 ({name}): {e}")
 
-                                    # Action 2: Alert to Admin (No Kick)
-                                    # 사장님께 알림 발송 (봇 DM)
+                                    # Action 2: Notification Message
                                     try:
-                                        # Admin ID가 설정되어 있어야 함 (settings.TELEGRAM_CHAT_ID)
-                                        # 혹은 VIP 채널 관리자에게? 일단 로그만 찍고, 
-                                        # 기능 구현: "봇이 사장님께 DM 보내기" (Chat ID 필요)
-                                        # 여기서는 일단 사용자에게 "만료됨" 알림만 보냄 (Kick X)
-                                        
                                         msg = (
-                                            f"📉 **이용 기간이 만료되었습니다.**\n"
+                                            f"📉 **무료 체험/이용 기간이 만료되었습니다.**\n"
                                             f"({expiry_str.split('T')[0]} 만료)\n\n"
-                                            f"포스타입 정기 결제자라면, 곧 관리자 확인 후 연장됩니다.\n"
-                                            f"결제가 중단되었다면 곧 입장이 제한될 수 있습니다.\n\n"
-                                            f"👉 **[연장 신청 / 문의]**\n"
-                                            f"https://t.me/Stock_Now_Bot?start=req_sub"
+                                            f"계속해서 프리미엄 정보를 받아보시려면\n"
+                                            f"아래 링크에서 멤버십 결제를 부탁드립니다.\n\n"
+                                            f"👉 **[멤버십 결제하고 계속 이용하기]**\n"
+                                            f"https://www.postype.com/@stock-now/post/21361212\n\n"
+                                            f"결제 후 봇에게 다시 말을 걸어주시면 안내해드립니다."
                                         )
                                         await bot.send_message(chat_id=chat_id, text=msg)
                                         logger.info(f"📉 [Expiry] 만료 알림 발송: {name}")
-                                        
                                     except: pass
 
-                                    # Action 3: Mark Tier as 'EXPIRED' (Optional, for Frontend filtering)
-                                    # But keep is_active=True for now so they don't lose access immediately
-                                    # payload = {"tier": "EXPIRED"} 
-                                    # await backend_update_subscriber(chat_id, payload)
-
+                                    # Action 3: Mark Tier as 'FREE' & Inactive (Loop Kick 방지)
+                                    try:
+                                        # backend_update_subscriber 함수 재사용
+                                        payload = {"tier": "FREE", "is_active": False}
+                                        await backend_update_subscriber(chat_id, payload)
+                                        logger.info(f"🔄 [Update] 사용자 등급 변경 완료 (PRO -> FREE): {name}")
+                                    except Exception as e:
+                                        logger.error(f"⚠️ [Update Failed] 등급 변경 실패: {e}")
                                         
         except Exception as e:
             logger.error(f"⚠️ [Scheduler] 에러 발생: {e}")
