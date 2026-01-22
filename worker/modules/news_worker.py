@@ -21,7 +21,8 @@ class NewsWorker:
         """백엔드에서 최근 분석 로그(7일치)를 가져와서 문자열로 변환"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{settings.BACKEND_URL}/analysis/market/recent?days=7") as resp:
+                # 📉 [Cost Optimization] 7일 -> 3일로 축소 (토큰 절약)
+                async with session.get(f"{settings.BACKEND_URL}/analysis/market/recent?days=3") as resp:
                     if resp.status == 200:
                         logs = await resp.json()
                         if not logs: return None
