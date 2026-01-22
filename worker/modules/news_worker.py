@@ -272,7 +272,7 @@ class NewsWorker:
         except asyncio.CancelledError:
             logger.info("🛑 NewsWorker 종료")
         finally:
-            await pubsub.close() # ✅ Explicit Close
+            await pubsub.aclose() # ✅ Use aclose() to fix DeprecationWarning
             await r.aclose()
 
     async def save_stock_log(self, code, name, price, rate, summary, sentiment):

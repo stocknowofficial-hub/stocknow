@@ -203,7 +203,7 @@ async def run_telegram_bot(app):
     except asyncio.CancelledError:
         logger.info("🛑 [Redis Listener] 종료")
     finally:
-        await pubsub.close() # ✅ Explicit Close
+        await pubsub.aclose() # ✅ Use aclose() to fix DeprecationWarning
         await r.aclose()
 
 async def broadcast_message(bot, message_data):
@@ -421,13 +421,15 @@ async def run_expiry_checker(bot):
 # ==============================================================================
 # 🔄 [Self-Healing] 정기 재기동 스케줄러 (오전 7시 / 오후 7시)
 # ==============================================================================
+# ==============================================================================
+# 🔄 [Self-Healing] 정기 재기동 스케줄러 (오전 7시 / 오후 7시)
+# ==============================================================================
 async def run_scheduled_restarter():
     """
     매일 07:00, 19:00에 프로세스를 종료합니다.
-    Docker의 'restart: always' 정책에 의해 즉시 재기동됩니다.
     """
-    import sys
     import random
+    import signal
     
     logger.info("📅 [Restarter] 정기 재기동 스케줄러 가동 (Target: 07:00, 19:00 KST)")
     
@@ -436,25 +438,40 @@ async def run_scheduled_restarter():
         hour = now.hour
         minute = now.minute
         
-        # 07:00 ~ 07:010 or 19:00 ~ 19:05 (5분 여유)
+        # 07:00 ~ 07:05 or 19:00 ~ 19:05
         if (hour == 7 or hour == 19) and minute < 5:
-            wait_sec = random.randint(1, 60) # 동시성 이슈 방지 (Random Jitter)
+            wait_sec = random.randint(1, 60)
             logger.warning(f"🛑 [Self-Destruct] 정기 점검 시간입니다. {wait_sec}초 후 프로세스를 종료합니다...")
-            
             await asyncio.sleep(wait_sec)
-            logger.warning("💣 [Goodbye] 시스템 종료. (Docker will revive me!)")
-            sys.exit(0) # 프로그램 종료 -> Docker가 재실행
             
-        await asyncio.sleep(60) # 1분마다 체크
+            logger.warning("💣 [Goodbye] 시스템 종료 신호 발송 (SIGTERM)...")
+            # ✅ self-termination via SIGTERM to trigger graceful shutdown
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+            
+        await asyncio.sleep(60)
 
 # ==============================================================================
 # 🚀 메인 실행기 (Application 방식)
 # ==============================================================================
 async def main():
+    import signal
+    
     logger.info("🚀 [Worker System] 통합 가동 시작...")
     
-    # 1. Telegram App 초기화 (네트워크 타임아웃 보강)
-    # httpx.ReadError 방지를 위해 타임아웃을 넉넉하게 설정
+    # 🎯 Shutdown Event for Graceful Exit
+    shutdown_event = asyncio.Event()
+
+    def signal_handler():
+        logger.info("🛑 [Signal] 종료 신호 수신! 정리 작업을 시작합니다...")
+        shutdown_event.set()
+
+    # Register Signal Handlers (SIGINT, SIGTERM)
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, signal_handler)
+
+    # 1. Telegram App 초기화
     app = (
         ApplicationBuilder()
         .token(settings.TELEGRAM_BOT_TOKEN)
@@ -462,8 +479,8 @@ async def main():
         .write_timeout(60)
         .connect_timeout(60)
         .pool_timeout(60)
-        .get_updates_read_timeout(60) # Polling 타임아웃
-        .connection_pool_size(16) # Pool Size 증가
+        .get_updates_read_timeout(60)
+        .connection_pool_size(16)
         .build()
     )
     app.add_handler(CommandHandler("start", start_command))
@@ -471,56 +488,46 @@ async def main():
     await app.initialize()
     await app.start()
     
-    # Polling 시작 
-    # bootstrap_retries=-1 : 무제한 재시도 (네트워크 끊겨도 안 죽게)
-    # read_timeout과 get_updates_read_timeout을 맞추는 게 좋음
     await app.updater.start_polling(
         allowed_updates=Update.ALL_TYPES,
-        poll_interval=2.0, # 2초 간격 (부하 감소)
+        poll_interval=2.0,
         bootstrap_retries=-1
     )
     
     logger.info("🤖 [Bot] Polling Started...")
 
     # 2. Redis 리스너 & 뉴스 워커 병렬 실행
-    # (Note: updater.start_polling() doesn't block forever, it starts a task)
-    
     worker = NewsWorker()
-    asyncio.create_task(run_telegram_bot(app)) # Redis Listener
+    asyncio.create_task(run_telegram_bot(app))
     asyncio.create_task(worker.run())
-
-    # 3. 스케줄러 실행 (만료 체크 & 정기 재기동)
     asyncio.create_task(run_expiry_checker(app.bot))
-    asyncio.create_task(run_scheduled_restarter()) # ✅ Added Restarter
+    asyncio.create_task(run_scheduled_restarter())
 
-    # 4. 무한 루프 (Idle)
+    # 3. Wait for Shutdown Signal
+    logger.info("🛡️ [System] 메인 루프 대기 중 (Press Ctrl+C to stop)...")
+    await shutdown_event.wait()
+    
+    # ==========================================================================
+    # 🛑 GRACEFUL SHUTDOWN LOGIC
+    # ==========================================================================
+    logger.info("🛑 [Shutdown] Cleaning up tasks...")
+    
+    # 1. Cancel all running tasks FIRST
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    [task.cancel() for task in tasks]
+    
+    logger.info(f"🛑 [Shutdown] Cancelling {len(tasks)} pending tasks...")
+    await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # 2. Stop Telegram Updater
     try:
-        # 1시간마다 생존 신고 (Heartbeat)
-        while True:
-            await asyncio.sleep(3600)
-            logger.info("💓 [Heartbeat] Worker is alive...")
-    except asyncio.CancelledError:
-        logger.info("Heartbeat task cancelled.")
-    finally:
-        logger.info("🛑 [Shutdown] Cleaning up tasks...")
+        if app.updater.running:
+            await app.updater.stop()
+        await app.shutdown()
+    except Exception as e:
+        logger.error(f"⚠️ [Shutdown Error] Bot shutdown: {e}")
         
-        # 1. Cancel all running tasks FIRST (prevent bot usage during shutdown)
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        [task.cancel() for task in tasks]
-        
-        logger.info(f"🛑 [Shutdown] Cancelling {len(tasks)} pending tasks...")
-        # wait a bit for tasks to catch CancelledError
-        await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 2. Stop Telegram Updater (Safe to stop now)
-        try:
-            if app.updater.running:
-                await app.updater.stop()
-            await app.shutdown()
-        except Exception as e:
-            logger.error(f"⚠️ [Shutdown Error] Bot shutdown: {e}")
-            
-        logger.info("👋 [Shutdown] All tasks cleanup done.")
+    logger.info("👋 [Shutdown] All tasks cleanup done. Bye!")
 
 if __name__ == "__main__":
     try:
