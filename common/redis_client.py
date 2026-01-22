@@ -7,7 +7,9 @@ class RedisClient:
         self.client = redis.Redis(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
-            decode_responses=True
+            decode_responses=True,
+            socket_timeout=5,         # ✅ Read/Write Timeout
+            socket_connect_timeout=5  # ✅ Connection Timeout
         )
 
     async def publish(self, channel, message):

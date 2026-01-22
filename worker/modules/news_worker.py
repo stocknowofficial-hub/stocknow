@@ -125,7 +125,7 @@ class NewsWorker:
             clean_keyword = ""
 
             if market == 'KR':
-                clean_keyword = "한국 증시 시황"
+                clean_keyword = "한국 증시"
                 if subtype == 'OPENING': query = "오늘 한국 증시 개장 전망, 주요 일정, 리스크, 관전 포인트 분석"
                 elif subtype == 'MID': query = "오늘 오전 한국 증시 상승 섹터, 하락 섹터, 특징주, 시황 요약"
                 elif subtype == 'CLOSE': query = "오늘 한국 증시 마감 시황과 코스피 코스닥 등락 원인"
@@ -258,7 +258,8 @@ class NewsWorker:
                             }
                             
                             if msg_type == 'SNS_ANALYSIS':
-                                payload['should_pin'] = True
+                                # payload['should_pin'] = True  <-- Removed as per user request
+                                pass
                             await r.publish("news_alert", ujson.dumps(payload))
                             logger.info(f"✅ [발송 완료] {title} 분석 결과 Redis 전송됨")
                         else:

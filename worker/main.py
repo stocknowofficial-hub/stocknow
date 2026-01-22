@@ -132,10 +132,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(success_msg)
             
             # 3. Admin Notification (To Maintainer)
-            # 봇에게 메시지를 보낸 사람에게 답장 보내듯, 
-            # 여기선 편의상 settings.TELEGRAM_CHAT_ID (Admin)가 있다면 거기로 보냄
-            # 없으면 로그만
             logger.info(f"💰 [Payment] {name} activated {plan_name}")
+            try:
+                if settings.TELEGRAM_CHAT_ID:
+                    admin_msg = f"💰 **[매출 알림]**\n{name} ({chat_id}) 님이 **{plan_name}**을 활성화했습니다!\n(만료일: {new_expiry.strftime('%Y-%m-%d')})"
+                    await context.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
+            except: pass
             
             # VIP 채널 링크 발송
             try:
@@ -172,6 +174,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(msg)
         logger.info(f"👤 [New User] {name} ({chat_id}) 등록 완료 & 초대장 발송")
+        
+        # Admin Notification (신규 가입)
+        try:
+            if settings.TELEGRAM_CHAT_ID:
+                admin_msg = f"👤 **[신규 유저]**\n{name} ({chat_id}) 님이 무료 체험을 시작했습니다!"
+                await context.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
+        except: pass
     else:
         await update.message.reply_text("⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
@@ -360,17 +369,37 @@ async def run_expiry_checker(bot):
 
                                     # Action 2: Notification Message
                                     try:
+                                        # Google Form Link Generation (Auto-fill Name)
+                                        import urllib.parse
+                                        # 텔레그램 이름이 없으면 '사용자'로 대체
+                                        safe_name = sub.name if sub.name else "사용자"
+                                        encoded_name = urllib.parse.quote(safe_name)
+                                        
+                                        # 구글 폼 링크 (이름 자동 입력)
+                                        voc_link = f"https://docs.google.com/forms/d/e/1FAIpQLSe4ICn7DbfNeeYLU9_NuMrFH7VBLjrOp62MVPiEubvE7Jslkw/viewform?usp=pp_url&entry.485428648={encoded_name}"
+                                        postype_url = "https://www.postype.com/@stock-now/post/21361212"
+
                                         msg = (
-                                            f"📉 **무료 체험/이용 기간이 만료되었습니다.**\n"
+                                            f"😭 **{safe_name}님, 구독 기간이 만료되었습니다.**\n"
                                             f"({expiry_str.split('T')[0]} 만료)\n\n"
-                                            f"계속해서 프리미엄 정보를 받아보시려면\n"
-                                            f"아래 링크에서 멤버십 결제를 부탁드립니다.\n\n"
-                                            f"👉 **[멤버십 결제하고 계속 이용하기]**\n"
-                                            f"https://www.postype.com/@stock-now/post/21361212\n\n"
-                                            f"결제 후 봇에게 다시 말을 걸어주시면 안내해드립니다."
+                                            f"더 이상 VIP 채널의 실시간 정보를 받아보실 수 없습니다.\n"
+                                            f"계속해서 최고의 투자 정보를 받아보시려면 멤버십을 연장해주세요!\n\n"
+                                            f"👉 **[멤버십 연장하러 가기]**\n"
+                                            f"{postype_url}\n\n"
+                                            f"📢 **[서비스 의견/불편 신고]**\n"
+                                            f"혹시 오류이거나 건의사항이 있으신가요?\n"
+                                            f"아래 링크를 통해 의견을 남겨주세요! (이름 자동입력)\n"
+                                            f"{voc_link}"
                                         )
                                         await bot.send_message(chat_id=chat_id, text=msg)
-                                        logger.info(f"📉 [Expiry] 만료 알림 발송: {name}")
+                                        logger.info(f"📉 [Expiry] 만료 알림 & VoC 링크 발송: {safe_name}")
+                                        
+                                        # Admin Notification (만료/강퇴)
+                                        try:
+                                            if settings.TELEGRAM_CHAT_ID:
+                                                admin_msg = f"📉 **[만료 알림]**\n{safe_name} ({chat_id}) 님의 구독이 만료되었습니다.\n(강퇴 및 알림 발송 완료)"
+                                                await bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
+                                        except: pass
                                     except: pass
 
                                     # Action 3: Mark Tier as 'FREE' & Inactive (Loop Kick 방지)
@@ -387,6 +416,35 @@ async def run_expiry_checker(bot):
         
         # 24시간 대기
         await asyncio.sleep(3600 * 24)
+
+# ==============================================================================
+# 🔄 [Self-Healing] 정기 재기동 스케줄러 (오전 7시 / 오후 7시)
+# ==============================================================================
+async def run_scheduled_restarter():
+    """
+    매일 07:00, 19:00에 프로세스를 종료합니다.
+    Docker의 'restart: always' 정책에 의해 즉시 재기동됩니다.
+    """
+    import sys
+    import random
+    
+    logger.info("📅 [Restarter] 정기 재기동 스케줄러 가동 (Target: 07:00, 19:00 KST)")
+    
+    while True:
+        now = datetime.now()
+        hour = now.hour
+        minute = now.minute
+        
+        # 07:00 ~ 07:010 or 19:00 ~ 19:05 (5분 여유)
+        if (hour == 7 or hour == 19) and minute < 5:
+            wait_sec = random.randint(1, 60) # 동시성 이슈 방지 (Random Jitter)
+            logger.warning(f"🛑 [Self-Destruct] 정기 점검 시간입니다. {wait_sec}초 후 프로세스를 종료합니다...")
+            
+            await asyncio.sleep(wait_sec)
+            logger.warning("💣 [Goodbye] 시스템 종료. (Docker will revive me!)")
+            sys.exit(0) # 프로그램 종료 -> Docker가 재실행
+            
+        await asyncio.sleep(60) # 1분마다 체크
 
 # ==============================================================================
 # 🚀 메인 실행기 (Application 방식)
@@ -427,14 +485,24 @@ async def main():
     # (Note: updater.start_polling() doesn't block forever, it starts a task)
     
     worker = NewsWorker()
-    
-    # Run forever
-    await asyncio.gather(
-        run_telegram_bot(app),   # Redis Listener
-        worker.run(),            # News Worker
-        run_expiry_checker(app.bot) # ✅ Expiry Scheduler
+    asyncio.create_task(run_telegram_bot(app)) # Redis Listener
+    asyncio.create_task(worker.run())
+
+    # 3. 스케줄러 실행 (만료 체크 & 정기 재기동)
+    asyncio.create_task(run_expiry_checker(app.bot))
+    asyncio.create_task(run_scheduled_restarter()) # ✅ Added Restarter
+
+    # 4. 무한 루프 (Idle)
+    try:
+        # 1시간마다 생존 신고 (Heartbeat)
+        while True:
+            await asyncio.sleep(3600)
+            logger.info("💓 [Heartbeat] Worker is alive...")
+    except asyncio.CancelledError:
+        logger.info("Heartbeat task cancelled.")
+    finally:
         # Polling is already running via updater
-    )
+        pass # No explicit action needed here, just to match the structure
     
     # Cleanup
     await app.updater.stop()

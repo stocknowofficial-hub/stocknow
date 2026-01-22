@@ -19,20 +19,56 @@ from common.logger import setup_logger # ✅ Logger Import
 
 logger = setup_logger("Watcher", "logs/watcher", "watcher.log")
 
+
+# ==============================================================================
+# 🔄 [Self-Healing] 정기 재기동 스케줄러 (오전 7시 / 오후 7시)
+# ==============================================================================
+async def run_scheduled_restarter():
+    """
+    매일 07:00, 19:00에 프로세스를 종료합니다. (Watcher)
+    Docker의 'restart: always' 정책에 의해 즉시 재기동됩니다.
+    """
+    import sys
+    import random
+    from datetime import datetime
+    
+    logger.info("📅 [Restarter] 정기 재기동 스케줄러 가동 (Target: 07:00, 19:00 KST)")
+    
+    while True:
+        now = datetime.now()
+        hour = now.hour
+        minute = now.minute
+        
+        # 07:00 ~ 07:05 or 19:00 ~ 19:05 (5분 여유)
+        if (hour == 7 or hour == 19) and minute < 5:
+            wait_sec = random.randint(1, 60) # 동시성 이슈 방지
+            logger.warning(f"🛑 [Self-Destruct] 정기 점검 시간입니다. {wait_sec}초 후 Watcher를 재기동합니다...")
+            
+            await asyncio.sleep(wait_sec)
+            logger.warning("💣 [Goodbye] Watcher 시스템 종료. (Docker will revive me!)")
+            sys.exit(0) 
+            
+        await asyncio.sleep(60)
+
 async def main():
     logger.info("🚀 [Reason Hunter] Watcher 통합 시스템 가동! (Simple & Strong)")
     
     # 1. KIS 접근 토큰 발급 (출입증)
-    approval_key = get_approval_key() 
-    access_token = get_access_token() 
-    
-    if not approval_key or not access_token:
-        logger.error("🛑 키 발급 실패. .env 설정을 확인하세요.")
-        return
+    # 1. KIS 접근 토큰 발급 (출입증)
+    # [안정성 패치] 실패 시 즉시 종료하지 않고 무한 재시도 (Crash Loop 방지)
+    while True:
+        approval_key = get_approval_key() 
+        access_token = get_access_token() 
+        
+        if approval_key and access_token:
+            break
+            
+        logger.error("🛑 키 발급 실패. 60초 후 재시도합니다... (API Rate Limit 방지)")
+        await asyncio.sleep(60)
 
     logger.info("✅ [System] 인증 성공. 감시 요원들을 투입합니다...")
 
-    # 2. 5대 감시자 동시 실행
+    # 2. 5대 감시자 + 재기동 스케줄러 동시 실행
     await asyncio.gather(
         # 🇰🇷 국내장 급등 포착 (조건검색)
         run_condition_watcher(approval_key, access_token), 
@@ -50,7 +86,10 @@ async def main():
         run_trump_watcher(),
 
         # 📑 리포트 감시 (BlackRock / Kiwoom)
-        run_report_watcher()
+        run_report_watcher(),
+        
+        # 🔄 스케줄러
+        run_scheduled_restarter()
     )
 
 if __name__ == "__main__":

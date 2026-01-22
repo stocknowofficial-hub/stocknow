@@ -103,6 +103,12 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         {base_rule}
         [Task] Search for "{query}" and write a 'Mid-Day Market Briefing' for Korea.
         
+        [CRITICAL VERIFICATION STEP]
+        - Before writing, **DOUBLE CHECK** the time of the events.
+        - **Common Mistake**: Do NOT confuse "Yesterday's Closing News" with "Today's Mid-Day Flow".
+        - Ensure all mentioned stock movements are happening **RIGHT NOW** (Real-time), not result from yesterday.
+        - If the news mentions "Market Closed" or "Ended", it is OLD data. SKIP IT.
+        
         [Structure]
         1. 📈 [오전 상승 주도]
            - Top performing sectors/themes and WHY they are rising.
