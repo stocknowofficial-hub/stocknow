@@ -203,6 +203,7 @@ async def run_telegram_bot(app):
     except asyncio.CancelledError:
         logger.info("🛑 [Redis Listener] 종료")
     finally:
+        await pubsub.close() # ✅ Explicit Close
         await r.aclose()
 
 async def broadcast_message(bot, message_data):
@@ -503,16 +504,22 @@ async def main():
     finally:
         logger.info("🛑 [Shutdown] Cleaning up tasks...")
         
-        # 1. Stop Telegram Updater
-        await app.updater.stop()
-        await app.shutdown()
-        
-        # 2. Cancel all running tasks
+        # 1. Cancel all running tasks FIRST (prevent bot usage during shutdown)
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         [task.cancel() for task in tasks]
         
         logger.info(f"🛑 [Shutdown] Cancelling {len(tasks)} pending tasks...")
+        # wait a bit for tasks to catch CancelledError
         await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 2. Stop Telegram Updater (Safe to stop now)
+        try:
+            if app.updater.running:
+                await app.updater.stop()
+            await app.shutdown()
+        except Exception as e:
+            logger.error(f"⚠️ [Shutdown Error] Bot shutdown: {e}")
+            
         logger.info("👋 [Shutdown] All tasks cleanup done.")
 
 if __name__ == "__main__":
