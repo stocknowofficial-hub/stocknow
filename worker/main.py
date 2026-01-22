@@ -501,12 +501,19 @@ async def main():
     except asyncio.CancelledError:
         logger.info("Heartbeat task cancelled.")
     finally:
-        # Polling is already running via updater
-        pass # No explicit action needed here, just to match the structure
-    
-    # Cleanup
-    await app.updater.stop()
-    await app.shutdown()
+        logger.info("🛑 [Shutdown] Cleaning up tasks...")
+        
+        # 1. Stop Telegram Updater
+        await app.updater.stop()
+        await app.shutdown()
+        
+        # 2. Cancel all running tasks
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        [task.cancel() for task in tasks]
+        
+        logger.info(f"🛑 [Shutdown] Cancelling {len(tasks)} pending tasks...")
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info("👋 [Shutdown] All tasks cleanup done.")
 
 if __name__ == "__main__":
     try:
