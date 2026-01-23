@@ -174,105 +174,113 @@ class NewsWorker:
            
         return None
 
-    async def run(self):
-        """Main Loop: Redis 메시지 수신 대기"""
+    async def run(self, shutdown_event=None):
+        """Main Loop: Redis 메시지 수신 대기 (Manual Polling)"""
         logger.info(f"🚀 [NewsWorker] 시스템 가동 완료 (Target: {getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')})")
         
         r = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
-        pubsub = r.pubsub()
-        channel = getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')
-        await pubsub.subscribe(channel)
-
+        
         try:
-            async for message in pubsub.listen():
-                if message['type'] == 'message':
-                    data_str = message['data']
-                    try:
-                        data = ujson.loads(data_str)
-                        msg_type = data.get('type')
-                        
-                        if msg_type not in ['CONDITION', 'CONDITION_US', 'MARKET_BRIEFING', 'SNS_ANALYSIS', 'REPORT_ANALYSIS']:
-                            continue
-                            
-                        # 🧠 AI 분석 수행
-                        final_result = await self.process_pipeline(data)
-                        
-                        if final_result:
-                            summary = final_result.get('summary', '')
+             # ✅ Use Async Context Manager
+            async with r.pubsub() as pubsub:
+                channel = getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')
+                await pubsub.subscribe(channel)
 
-                            if "SKIP" in summary:
-                                logger.info(f"🔇 [AI Filter] 영양가 없는 잡담으로 판별됨. (Skip)")
-                                continue
-                            
-                            # 제목 및 카테고리 설정
-                            category = "STOCK"
-                            if msg_type == 'MARKET_BRIEFING':
-                                mk_name = "🇰🇷 한국장" if data.get('market') == 'KR' else "🇺🇸 미국장"
-                                sub_name = {"OPENING": "개장 브리핑", "MID": "오전/장중 브리핑", "CLOSE": "마감 브리핑"}.get(data.get('subtype'), "브리핑")
-                                title = f"{mk_name} [{sub_name}]"
-                                category = "BRIEFING"
-                            elif msg_type == 'SNS_ANALYSIS':
-                                title = f"🏛️ [트럼프 긴급 포착]"
-                                category = "TRUMP"
-                            elif msg_type == 'REPORT_ANALYSIS':
-                                mk_source = data.get('source', 'Analyst')
-                                title = f"📑 [{mk_source} 리포트 Output]"
-                                category = "ANALYST_REPORT"
-                            else:
-                                title = data.get('name')
-                                category = "STOCK"
+                # ✅ Manual Polling Loop (No GeneratorExit Issues)
+                while True:
+                    if shutdown_event and shutdown_event.is_set():
+                        break
+
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                    if message:
+                        if message['type'] == 'message':
+                            data_str = message['data']
+                            try:
+                                data = ujson.loads(data_str)
+                                msg_type = data.get('type')
                                 
-                            # ✅ Payload Link Logic (Compute BEFORE Saving DB)
-                            final_link = final_result.get('link', '')
-                            if msg_type == 'REPORT_ANALYSIS' and data.get('url'):
-                                final_link = data.get('url') # Override with Real PDF URL
+                                if msg_type not in ['CONDITION', 'CONDITION_US', 'MARKET_BRIEFING', 'SNS_ANALYSIS', 'REPORT_ANALYSIS']:
+                                    pass # continue equivalent
+                                else:
+                                    # 🧠 AI 분석 수행
+                                    final_result = await self.process_pipeline(data)
+                                    
+                                    if final_result:
+                                        summary = final_result.get('summary', '')
 
-                            # ✅ [DB Save] 분석 결과 백엔드로 전송 (Split)
-                            if category == "STOCK":
-                                await self.save_stock_log(
-                                    code=data.get('code'),
-                                    name=data.get('name'),
-                                    price=str(data.get('price', '')),
-                                    rate=str(data.get('rate', '')),
-                                    summary=summary,
-                                    sentiment=final_result.get('sentiment', 'Neutral')
-                                )
-                            else:
-                                await self.save_market_log(
-                                    category=category,
-                                    title=title,
-                                    content=summary,
-                                    sentiment=final_result.get('sentiment', 'Neutral'),
-                                    original_url=final_link, # ✅ Use Correct Link
-                                    sectors=final_result.get('sectors'),
-                                    topics=final_result.get('topics')
-                                )
+                                        if "SKIP" in summary:
+                                            logger.info(f"🔇 [AI Filter] 영양가 없는 잡담으로 판별됨. (Skip)")
+                                        else:
+                                            # 제목 및 카테고리 설정
+                                            category = "STOCK"
+                                            if msg_type == 'MARKET_BRIEFING':
+                                                mk_name = "🇰🇷 한국장" if data.get('market') == 'KR' else "🇺🇸 미국장"
+                                                sub_name = {"OPENING": "개장 브리핑", "MID": "오전/장중 브리핑", "CLOSE": "마감 브리핑"}.get(data.get('subtype'), "브리핑")
+                                                title = f"{mk_name} [{sub_name}]"
+                                                category = "BRIEFING"
+                                            elif msg_type == 'SNS_ANALYSIS':
+                                                title = f"🏛️ [트럼프 긴급 포착]"
+                                                category = "TRUMP"
+                                            elif msg_type == 'REPORT_ANALYSIS':
+                                                mk_source = data.get('source', 'Analyst')
+                                                title = f"📑 [{mk_source} 리포트 Output]"
+                                                category = "ANALYST_REPORT"
+                                            else:
+                                                title = data.get('name')
+                                                category = "STOCK"
+                                                
+                                            # ✅ Payload Link Logic (Compute BEFORE Saving DB)
+                                            final_link = final_result.get('link', '')
+                                            if msg_type == 'REPORT_ANALYSIS' and data.get('url'):
+                                                final_link = data.get('url') # Override with Real PDF URL
+
+                                            # ✅ [DB Save] 분석 결과 백엔드로 전송 (Split)
+                                            if category == "STOCK":
+                                                await self.save_stock_log(
+                                                    code=data.get('code'),
+                                                    name=data.get('name'),
+                                                    price=str(data.get('price', '')),
+                                                    rate=str(data.get('rate', '')),
+                                                    summary=summary,
+                                                    sentiment=final_result.get('sentiment', 'Neutral')
+                                                )
+                                            else:
+                                                await self.save_market_log(
+                                                    category=category,
+                                                    title=title,
+                                                    content=summary,
+                                                    sentiment=final_result.get('sentiment', 'Neutral'),
+                                                    original_url=final_link, # ✅ Use Correct Link
+                                                    sectors=final_result.get('sectors'),
+                                                    topics=final_result.get('topics')
+                                                )
+                                            
+                                            payload = {
+                                                "type": "SNS_SUMMARY" if msg_type == 'SNS_ANALYSIS' else "NEWS_SUMMARY",
+                                                "name": title,
+                                                "summary": summary,
+                                                "sentiment": final_result.get('sentiment', 'Neutral'),
+                                                "link": final_link, 
+                                                "price": data.get('price'),
+                                                "rate": data.get('rate')
+                                            }
+                                            
+                                            if msg_type == 'SNS_ANALYSIS':
+                                                pass
+                                            await r.publish("news_alert", ujson.dumps(payload))
+                                            logger.info(f"✅ [발송 완료] {title} 분석 결과 Redis 전송됨")
+                                    else:
+                                        logger.info(f"   💨 [Skip] 유효한 뉴스/결과가 없어 전송하지 않습니다.")
                             
-                            payload = {
-                                "type": "SNS_SUMMARY" if msg_type == 'SNS_ANALYSIS' else "NEWS_SUMMARY",
-                                "name": title,
-                                "summary": summary,
-                                "sentiment": final_result.get('sentiment', 'Neutral'),
-                                "link": final_link, 
-                                "price": data.get('price'),
-                                "rate": data.get('rate')
-                            }
-                            
-                            if msg_type == 'SNS_ANALYSIS':
-                                # payload['should_pin'] = True  <-- Removed as per user request
-                                pass
-                            await r.publish("news_alert", ujson.dumps(payload))
-                            logger.info(f"✅ [발송 완료] {title} 분석 결과 Redis 전송됨")
-                        else:
-                            logger.info(f"   💨 [Skip] 유효한 뉴스/결과가 없어 전송하지 않습니다.")
-                        
-                    except Exception as e:
-                        logger.error(f"⚠️ [Error] 메시지 처리 중 오류: {e}")
-                        
+                            except Exception as e:
+                                logger.error(f"⚠️ [Error] 메시지 처리 중 오류: {e}")
+                    
+                    # Loop delay
+                    await asyncio.sleep(0.01)
+
         except asyncio.CancelledError:
             logger.info("🛑 NewsWorker 종료")
         finally:
-            await pubsub.aclose() # ✅ Use aclose() to fix DeprecationWarning
             await r.aclose()
 
     async def save_stock_log(self, code, name, price, rate, summary, sentiment):

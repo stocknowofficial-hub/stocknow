@@ -184,26 +184,36 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
-async def run_telegram_bot(app):
-    """Redis 리스너 (봇 기능과 병행 실행)"""
+async def run_telegram_bot(app, shutdown_event=None):
+    """Redis 리스너 (봇 기능과 병행 실행) - Manual Polling"""
     logger.info(f"📡 [Bot] Redis 리스너 가동...")
     
     r = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
-    pubsub = r.pubsub()
-    await pubsub.subscribe("news_alert")
     
     try:
-        async for message in pubsub.listen():
-            if message['type'] == 'message':
-                try:
-                    data_json = ujson.loads(message['data'])
-                    await broadcast_message(app.bot, data_json)
-                except Exception as e:
-                    logger.error(f"⚠️ [Bot] 메시지 처리 에러: {e}")
+        # ✅ Use Async Context Manager for automatic cleanup
+        async with r.pubsub() as pubsub:
+            await pubsub.subscribe("news_alert")
+            
+            # ✅ Manual Polling (No GeneratorExit)
+            while True:
+                if shutdown_event and shutdown_event.is_set():
+                    break
+                    
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message:
+                    if message['type'] == 'message':
+                        try:
+                            data_json = ujson.loads(message['data'])
+                            await broadcast_message(app.bot, data_json)
+                        except Exception as e:
+                            logger.error(f"⚠️ [Bot] 메시지 처리 에러: {e}")
+                
+                await asyncio.sleep(0.01)
+
     except asyncio.CancelledError:
         logger.info("🛑 [Redis Listener] 종료")
     finally:
-        await pubsub.aclose() # ✅ Use aclose() to fix DeprecationWarning
         await r.aclose()
 
 async def broadcast_message(bot, message_data):
@@ -498,8 +508,8 @@ async def main():
 
     # 2. Redis 리스너 & 뉴스 워커 병렬 실행
     worker = NewsWorker()
-    asyncio.create_task(run_telegram_bot(app))
-    asyncio.create_task(worker.run())
+    asyncio.create_task(run_telegram_bot(app, shutdown_event))
+    asyncio.create_task(worker.run(shutdown_event))
     asyncio.create_task(run_expiry_checker(app.bot))
     asyncio.create_task(run_scheduled_restarter())
 
