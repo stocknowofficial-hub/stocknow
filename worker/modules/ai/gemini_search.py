@@ -47,7 +47,11 @@ class GeminiSearch:
 
         try:
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, self._generate_sync, prompt)
+            # ⏱️ [Safety] 45초 타임아웃 설정 (무한 대기 방지)
+            response = await asyncio.wait_for(
+                loop.run_in_executor(None, self._generate_sync, prompt),
+                timeout=45.0
+            )
 
             if response and response.text:
                 text = response.text.strip()
