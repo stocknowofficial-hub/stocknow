@@ -58,6 +58,12 @@ async def main():
     # [안정성 패치] 실패 시 즉시 종료하지 않고 무한 재시도 (Crash Loop 방지)
     while True:
         approval_key = get_approval_key() 
+        
+        # ✅ [Fix] API Rate Limit (1분 제한) 회피를 위한 딜레이
+        if approval_key:
+             logger.info("⏳ 토큰 발급을 위해 1초 대기...")
+             await asyncio.sleep(1.5)
+             
         access_token = get_access_token() 
         
         if approval_key and access_token:
