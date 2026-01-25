@@ -85,12 +85,16 @@ def update_telegraph_board(telegraph_info, title, stock_list):
     content_json = [
         {"tag": "p", "children": [f"• {formatted_date}"]},
         {"tag": "h3", "children": ["실시간 급등/급락 종목 현황 (±3% 이상)"]},
-        {"tag": "p", "children": [f"🕒 최종 업데이트: {current_time_str}"]},
-        {"tag": "hr"}
+        {"tag": "p", "children": [f"🕒 최종 업데이트: {current_time_str}"]}
     ]
     
     # 상위 20개만 보여주거나 전체 보여주거나 (여기선 전체)
     for idx, item in enumerate(stock_list):
+        # ✅ [Header Support] 섹션 구분용
+        if item.get('is_header'):
+            content_json.append({"tag": "h4", "children": [item['name']]})
+            continue
+            
         rank = idx + 1
         name = item['name']
         
@@ -100,6 +104,7 @@ def update_telegraph_board(telegraph_info, title, stock_list):
         rate = int(float(raw_rate) * 100) / 100
         
         emoji = "🔥" if rate > 0 else "💧"
+        if rate == 0: emoji = "➖"
         
         # 미국장은 가격 정보도 있으면 보여줌 (선택사항)
         price_info = ""
@@ -116,8 +121,18 @@ def update_telegraph_board(telegraph_info, title, stock_list):
                     price_info = f" (${p_val:,.2f})"
             except:
                 price_info = f" ({item['price']})"
-            
-        line_text = f"{rank}위. {name} : {rate}% {emoji}{price_info}"
+        
+        # ✅ [수정] 티커(Code) 포함: "애플(AAPL) : -0.12% 💧 ($248.04)"
+        code_str = item.get('code', '')
+        if code_str:
+            line_text = f"{name}({code_str}) : {rate}% {emoji}{price_info}"
+        else:
+            line_text = f"{name} : {rate}% {emoji}{price_info}"
+        
+        # 순위 표시 (Header가 아닌 일반 항목만)
+        if not item.get('no_rank'):
+             line_text = f"{rank}위. " + line_text
+             
         content_json.append({"tag": "p", "children": [line_text]})
 
     content_str = ujson.dumps(content_json)
@@ -265,6 +280,98 @@ def fetch_us_stocks_by_condition(token, exchange_code, min_market_cap):
             return data['output2']
         return []
     except: return []
+
+# =========================================================
+# 🛠️ [New] 미국 주식 지정 종목 가격 조회 (Batch)
+# =========================================================
+def fetch_prices_by_codes(token, codes_list):
+    """
+    여러 종목의 현재가를 조회 (단건 조회 API 반복 호출)
+    Round-Robin으로 거래소 시도 (AMS -> NYS -> NAS)
+    """
+    results = []
+    url = "https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/price-detail"
+    
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "HHDFS76200200"
+    }
+
+    for code in codes_list:
+        found = False
+        # ✅ [Retry Logic] 거래소 순회 (ETF는 AMS/NYS, 개별주는 NAS 등 다양)
+        # 우선순위: AMS(ETF) -> NAS(Tech) -> NYS(General)
+        exchange_candidates = ["AMS", "NAS", "NYS"]
+        
+        for excd in exchange_candidates:
+            if found: break
+            try:
+                params = {"AUTH": "", "EXCD": excd, "SYMB": code}
+                res = requests.get(url, headers=headers, params=params, timeout=3.0)
+                data = res.json()
+                
+                if res.status_code == 200 and 'output' in data:
+                    item = data['output']
+                    # 데이터 유효성 체크
+                    if not item.get('last'): 
+                        print(f"⚠️ [FetchSkip] {code} in {excd}: No Price (last is empty)")
+                        continue 
+                    
+                    # 1. 등락률 계산 (rate가 없으면 base로 계산)
+                    current_price = float(item['last'])
+                    rate = 0.0
+                    try:
+                        raw_rate = item.get('rate') or item.get('diff')
+                        if raw_rate:
+                            rate = float(raw_rate)
+                        else:
+                            # base(전일종가) 이용 계산
+                            base_price = float(item.get('base') or item.get('p_close') or current_price)
+                            if base_price > 0:
+                                rate = ((current_price - base_price) / base_price) * 100
+                    except: pass
+                    
+                    # 2. 이름 정제 (DAMSGLD -> GLD or ename)
+                    raw_name = item.get('rsym') or code
+                    
+                    # 영어 이름(ename)이 있으면 우선 사용
+                    if item.get('ename'):
+                        final_name = item['ename']
+                    else:
+                        # 접두어 제거 (DAMS, DNAS, DNYS, DASI 등 4글자)
+                        # 보통 D+거래소(3) 조합. 
+                        # 그냥 code가 있으면 code와 비교해서 정제?
+                        # DAMSGLD -> GLD.
+                        if raw_name.startswith("DAMS") or raw_name.startswith("DNAS") or raw_name.startswith("DNYS"):
+                            final_name = raw_name[4:]
+                        else:
+                            final_name = raw_name
+
+                    results.append({
+                        "code": code,
+                        "name": final_name, 
+                        "price": item['last'],
+                        "rate": rate,
+                        "market_cap": 0,
+                        "is_sector": True
+                    })
+                    found = True
+                else:
+                    # 실패 이유 출력
+                    pass # print(f"⚠️ [FetchRetry] {code} in {excd}: Status {res.status_code}, Msg: {data.get('msg1')}")
+
+            except Exception as e:
+                print(f"⚠️ [FetchEx] {code} in {excd}: {e}")
+                pass
+        
+        if not found:
+             print(f"❌ [FetchFail] {code} not found in any exchange. (Check Token/Limit?)")
+             pass
+        
+    return results
 
 # =========================================================
 # 🛠️ [NEW] 통합 휴장일/상태 체크 (Domestic Only)
