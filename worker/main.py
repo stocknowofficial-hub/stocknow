@@ -59,7 +59,29 @@ async def backend_update_subscriber(chat_id, payload):
                 return resp.status == 200
     except Exception as e:
         logger.error(f"⚠️ [API] Update 실패: {e}")
+    except Exception as e:
+        logger.error(f"⚠️ [API] Update 실패: {e}")
         return False
+
+async def send_log_to_admin(bot, text, user_info):
+    """
+    [BCC] 봇이 유저에게 보낸 메시지를 관리자에게도 전송 (로그용)
+    """
+    try:
+        if settings.TELEGRAM_CHAT_ID:
+            log_msg = (
+                f"📝 **[Bot Log]**\n"
+                f"To: {user_info}\n"
+                f"-----------------------------\n"
+                f"{text}"
+            )
+            # 로그 메시지가 너무 길면 잘라서 보냄 (안전장치)
+            if len(log_msg) > 4000:
+                log_msg = log_msg[:4000] + "\n...(생략)"
+            
+            await bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=log_msg)
+    except Exception as e:
+        logger.error(f"⚠️ [Admin Log] 전송 실패: {e}")
 
 # Command Handler: /start
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,8 +152,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"VIP 채널에서 최고의 정보를 받아보세요!"
             )
             await update.message.reply_text(success_msg)
+            # 3. [BCC] Admin Log
+            await send_log_to_admin(context.bot, success_msg, f"{name} ({chat_id})")
             
-            # 3. Admin Notification (To Maintainer)
+            # Admin Notification (To Maintainer) - REPLACED by BCC, but keeping specific alert?
+            # User asked to "copy message sent to bot". But Payment Alert is specific.
+            # I will keep Payment Alert as it has extra metadata (Expiry Date).
             logger.info(f"💰 [Payment] {name} activated {plan_name}")
             try:
                 if settings.TELEGRAM_CHAT_ID:
@@ -147,7 +173,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             return # 종료 (Start 로직 건너뜀)
         else:
-            await update.message.reply_text("⚠️ 처리 중 오류가 발생했습니다. 관리자에게 문의해주세요.")
+            err_msg = "⚠️ 처리 중 오류가 발생했습니다. 관리자에게 문의해주세요."
+            await update.message.reply_text(err_msg)
+            await send_log_to_admin(context.bot, err_msg, f"{name} ({chat_id})")
             return
 
     success = await register_subscriber(chat_id, name, username, referrer_id)
@@ -173,16 +201,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f" 주의: 알림을 계속 받으려면 이 봇을 차단하지 마세요!"
         )
         await update.message.reply_text(msg)
+        await send_log_to_admin(context.bot, msg, f"{name} ({chat_id})")
+        
         logger.info(f"👤 [New User] {name} ({chat_id}) 등록 완료 & 초대장 발송")
         
-        # Admin Notification (신규 가입)
+        # Admin Notification (신규 가입) - Explicit Alert kept
         try:
             if settings.TELEGRAM_CHAT_ID:
                 admin_msg = f"👤 **[신규 유저]**\n{name} ({chat_id}) 님이 무료 체험을 시작했습니다!"
                 await context.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
         except: pass
     else:
-        await update.message.reply_text("⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+        err_msg = "⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+        await update.message.reply_text(err_msg)
+        await send_log_to_admin(context.bot, err_msg, f"{name} ({chat_id})")
 
 async def run_telegram_bot(app, shutdown_event=None):
     """Redis 리스너 (봇 기능과 병행 실행) - Manual Polling"""
@@ -403,6 +435,7 @@ async def run_expiry_checker(bot):
                                             f"{voc_link}"
                                         )
                                         await bot.send_message(chat_id=chat_id, text=msg)
+                                        await send_log_to_admin(bot, msg, f"{safe_name} ({chat_id})")
                                         logger.info(f"📉 [Expiry] 만료 알림 & VoC 링크 발송: {safe_name}")
                                         
                                         # Admin Notification (만료/강퇴)
