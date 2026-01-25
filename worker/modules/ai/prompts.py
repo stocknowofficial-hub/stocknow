@@ -206,10 +206,10 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         1. Simple Boasting/National Pride: "USA is the best", "We are winning", "MAGA" (without specific context).
         2. Personal Complaints: "Fake News is bad", "They stole the election" (without policy threats).
         3. Routine Schedule: "I played golf", "Happy Birthday".
-        4. **Routine Political Endorsements (CRITICAL):**
-           - Posts like "I Give John Doe my Complete and Total Endorsement!", "He is strong on Border/Crime".
-           - UNLESS the post contains a **NEW, SPECIFIC National Policy Announcement** (e.g., "I will sign an Executive Order tomorrow").
-           - Mere repetition of general slogans (Secure Border, Energy Dominance) in an endorsement context is **NOISE**. SKIP IT.
+        4. **Domestic Politics (Endorsements/Personal Attacks):**
+           - Posts purely praising (Endorsement) OR attacking (Corruption/Embezzlement) specific individuals (Governors/Senators/Judges).
+           - **SKIP** unless there is a **Direct Link to Federal Policy** (e.g. Tariffs, Federal Funding Cuts, Executive Orders).
+           - Mere repetition of slogans or vague threats ("We want money back") are **NOISE**.
         -> If the post falls into these categories, DO NOT ANALYZE. Just Output "SKIP".
         
         ✅ **CRITERIA FOR 'SIGNAL' (PROCEED TO ANALYZE):**
