@@ -39,17 +39,15 @@ def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=No
 
     [Strict Output Rules]
     1. **Language:** ANSWER IN **KOREAN** (한국어).
-    2. **Format:** Summarize 3 key bullet points (*). Do NOT use bold text (**).
-    3. **Sentiment Tag:** The LAST LINE must be exactly one of:
-       - [Sentiment: Positive]
-       - [Sentiment: Negative]
-       - [Sentiment: Neutral]
+    2. **Format:** EXACTLY 2 Bullet Points.
+       * Point 1: **[핵심 원인]** One sentence summary of WHY it is rising/falling.
+       * Point 2: **[투자 판단]** One sentence advice (e.g., "추격 매수 자제", "수급 유입 지속으로 긍정적", "단기 과열 주의").
+    3. **Sentiment Tag:** The LAST LINE must be exactly one of: [Sentiment: Positive], [Sentiment: Negative], or [Sentiment: Neutral].
 
     [Example Output - Success]
-    * 엔비디아, 새로운 AI 칩셋 'Blackwell' 출시 발표
-    * 월가 목표 주가 상향 조정 (150$ -> 180$)
-    * 실적 발표를 앞두고 구글, MS 등 주요 고객사 수요 증가 확인
-    (Stock Now Note: 이번 상승은 지난 11일 모닝 브리핑에서 언급한 '기술주 랠리' 전망과 일치하는 흐름입니다.)
+    * [핵심 원인] 정부의 신규 원전 2기 건설 확정 소식에 따른 직접적인 수혜 기대감 반영
+    * [투자 판단] 🐂 **긍정** (기관 대량 수급이 뒷받침되고 있어 추가 상승 여력 있음)
+    (Stock Now Note: ...)
     [Sentiment: Positive]
 
     [Example Output - Failure]

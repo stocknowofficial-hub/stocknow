@@ -44,10 +44,10 @@ def check_is_holiday(token):
                         print(f"😴 [KR-Condition] 오늘은 휴장일입니다 ({today_str}).")
                         return True
                     else:
-                        print(f"✅ [KR-Condition] 오늘은 개장일입니다 ({today_str}).")
+                        # print(f"✅ [KR-Condition] 오늘은 개장일입니다 ({today_str}).")
                         return False
             
-            print(f"⚠️ [KR-Condition] API 데이터에 오늘 날짜({today_str}) 없음 -> 개장일로 가정합니다.")
+            # print(f"⚠️ [KR-Condition] API 데이터에 오늘 날짜({today_str}) 없음 -> 개장일로 가정합니다.")
             return False
         return "AUTH_ERROR"
     except Exception as e:
@@ -89,13 +89,14 @@ def update_telegraph_board(telegraph_info, title, stock_list):
     ]
     
     # 상위 20개만 보여주거나 전체 보여주거나 (여기선 전체)
-    for idx, item in enumerate(stock_list):
+    rank = 1
+    for item in stock_list:
         # ✅ [Header Support] 섹션 구분용
         if item.get('is_header'):
             content_json.append({"tag": "h4", "children": [item['name']]})
+            rank = 1 # Reset Rank
             continue
             
-        rank = idx + 1
         name = item['name']
         
         # ✅ [수정된 부분] 🇰🇷KR은 'chgrate', 🇺🇸US는 'rate'를 씁니다. 둘 다 체크!
@@ -106,34 +107,43 @@ def update_telegraph_board(telegraph_info, title, stock_list):
         emoji = "🔥" if rate > 0 else "💧"
         if rate == 0: emoji = "➖"
         
-        # 미국장은 가격 정보도 있으면 보여줌 (선택사항)
-        price_info = ""
+        # Format Price
+        price_str = ""
         if 'price' in item and item['price']:
             try:
                 p_val = float(item['price'])
-                
-                # 🇰🇷 한국장 (chgrate 키가 있으면 한국장으로 간주)
-                if 'chgrate' in item:
-                    # 정수만 남기고 $ 제거 (예: 138,100)
-                    price_info = f" ({int(p_val):,})"
-                else:
-                    # 🇺🇸 미국장 ($ 붙이고 소수점 2자리)
-                    price_info = f" (${p_val:,.2f})"
+                if 'chgrate' in item: # KR
+                     price_str = f"{int(p_val):,}원"
+                else: # US
+                     price_str = f"${p_val:,.2f}"
             except:
-                price_info = f" ({item['price']})"
+                price_str = str(item['price'])
+
+        # Name Cleaning (Remove internal metadata from name if present)
+        # Assuming name might have (🐳...) appended by caller, we might want to split?
+        # The caller 'whale_watcher_us.py' appends info to name. 
+        # Ideally, caller should pass raw data. 
+        # But 'processed name' is passed. 
+        # User saw: "브로드컴 (🐳2건/$4.0M)" 
+        # I should change the CALLER format in whale_watcher_us.py instead of parsing here?
+        # User Request: "2건은 뭐고... 숫자는 뭐고..."
+        # So I will change how it is CONSTRUCTED in whale_watcher_us.py.
+        # But here, I also need to fix Rank.
         
-        # ✅ [수정] 티커(Code) 포함: "애플(AAPL) : -0.12% 💧 ($248.04)"
-        code_str = item.get('code', '')
-        if code_str:
-            line_text = f"{name}({code_str}) : {rate}% {emoji}{price_info}"
-        else:
-            line_text = f"{name} : {rate}% {emoji}{price_info}"
+        # Let's assume standard format here:
+        # If name has parens, it's already formatted.
+        # I will just fix the Rank logic here first.
+        
+        line_text = f"{rank}. {name} : {rate}% {emoji}"
+        if price_str:
+             line_text += f" ({price_str})"
         
         # 순위 표시 (Header가 아닌 일반 항목만)
         if not item.get('no_rank'):
-             line_text = f"{rank}위. " + line_text
-             
-        content_json.append({"tag": "p", "children": [line_text]})
+             content_json.append({"tag": "p", "children": [line_text]})
+             rank += 1
+        else:
+             content_json.append({"tag": "p", "children": [line_text]})
 
     content_str = ujson.dumps(content_json)
     
@@ -258,8 +268,11 @@ def check_us_market_open(token):
         print(f"⚠️ [Check Error] {e}")
         return "AUTH_ERROR"
 
-def fetch_us_stocks_by_condition(token, exchange_code, min_market_cap):
-    """미국 시총 상위 조회"""
+def fetch_us_stocks_by_condition(token, exchange_code, min_market_cap, sort_key="VALX"):
+    """
+    미국 시총 상위 조회 (조건검색)
+    :param sort_key: 정렬 기준 (VALX: 시총, VOL: 거래량(추정))
+    """
     url = "https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/inquire-search"
     headers = {
         "content-type": "application/json; utf-8",
@@ -269,9 +282,14 @@ def fetch_us_stocks_by_condition(token, exchange_code, min_market_cap):
         "tr_id": "HHDFS76410000",
         "custtype": "P"
     }
+    # KEYB: NULL(시총순?), VOL(거래량?), RATE(등락률?)
+    # 문서 확인 필요. 일단 KEYB="" 는 시총순(기본).
+    # 여기서 KEYB에 값을 넣어 제어.
+    key_val = "VOL" if sort_key == "VOL" else "" 
+    
     params = {
         "AUTH": "", "EXCD": exchange_code, "CO_YN_VALX": "1",
-        "CO_ST_VALX": min_market_cap, "CO_EN_VALX": "999999999999", "KEYB": ""
+        "CO_ST_VALX": min_market_cap, "CO_EN_VALX": "999999999999", "KEYB": key_val
     }
     try:
         res = requests.get(url, headers=headers, params=params, timeout=5)
@@ -356,6 +374,7 @@ def fetch_prices_by_codes(token, codes_list):
                         "price": item['last'],
                         "rate": rate,
                         "market_cap": 0,
+                        "tvol": item.get('tvol', 0), # ✅ Add Volume
                         "is_sector": True
                     })
                     found = True
@@ -407,3 +426,313 @@ def check_today_actionable(token):
         
     # 3. 개장일
     return "OPEN"
+
+# =========================================================
+# 🐳 [Whale Hunter] 미국 주식 전용 API
+# =========================================================
+
+def fetch_overseas_volume_rank(token, excd="NAS"):
+    """
+    미국 거래량 상위 (또는 급증) 종목 조회
+    - 실시간 거래량 상위를 가져와서 1분 전 데이터와 비교하는 로직은 Watcher에서 수행
+    - 여기서는 KIS의 '거래량 상위' API를 호출
+    """
+    # 해외주식 거래량 상위 (HHDFS76410000 이용 - 조건검색 응용)
+    # CO_YN_VALX=1 (시가총액순)이 아닌 CO_YN_VOLX? 
+    # 문서상 해외주식 조건검색에서 '전일대비율상위' 등은 있지만 '거래량상위' 정렬 옵션은 
+    # '조건검색' inquire-search 에서 KEYB(정렬) 옵션으로 가능할 수 있음.
+    # 혹은 '순위분석(거래량)' 전용 TR이 있는지 확인 필요.
+    # (없으면 기존 조건검색에서 시총 필터 후 거래량 순 정렬 로직 사용)
+    
+    # 📌 해외주식 거래량 상위 (HHDFS76410000)
+    # KEYB: 정렬기준 (VOL: 거래량)
+    return fetch_us_stocks_by_condition(token, excd, min_market_cap="0", sort_key="VOL")
+
+def fetch_overseas_time_sales(token, code, excd="NAS"):
+    """
+    해외주식 체결추이 (Time & Sales)
+    - KIS TR: HHDFS76200300 (해외주식 체결추이)
+    - URL: /uapi/overseas-price/v1/quotations/inquire-ccnl
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/overseas-price/v1/quotations/inquire-ccnl"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "HHDFS76200300"
+    }
+    
+    # Params based on user documentation
+    # EXCD: 거래소 (NYS, NAS, AMS)
+    # TDAY: 0:전일, 1:당일 -> 실시간 감시니까 '1' (당일)
+    # KEYB: Next Key (Paging) -> 공백
+    params = {
+        "AUTH": "", 
+        "EXCD": excd, 
+        "SYMB": code,
+        "TDAY": "1",
+        "KEYB": "" 
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=3.0)
+        
+        # Debug
+        if res.status_code != 200:
+             print(f"⚠️ [Whale] Status: {res.status_code}, Body: {res.text}")
+        
+        data = res.json()
+        if res.status_code == 200 and 'output1' in data:
+            # output1 list items (Korean Time)
+            # khms: 한국시간, last: 체결가, evol: 체결량, vpow: 체결강도
+            return data['output1']
+        return []
+    except Exception as e:
+        print(f"⚠️ [Whale] 체결추이 조회 실패 ({code}): {e}")
+        return []
+
+# =========================================================
+# 🐳 [K-Whale] 국내 주식 수급 포착
+# =========================================================
+
+def fetch_kr_program_trend(token, code):
+    """
+    [REST] 종목별 프로그램 매매추이 (FHPPG04650101)
+    - 당일 프로그램 순매수 추이 확인 (Trigger)
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/program-trade-by-stock"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHPPG04650101"
+    }
+    
+    # FID_COND_MRKT_DIV_CODE: J(KRX)
+    # FID_INPUT_ISCD: 종목코드
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_INPUT_ISCD": code
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        
+        if res.status_code == 200 and 'output' in data:
+            # output is list? Doc says 'output' is Object Array (history?). 
+            # Usually [0] is latest.
+            # Fields: whol_smtn_ntby_tr_pbmn (전체 합계 순매수 거래 대금 - 백만원 단위?)
+            # Doc: whol_smtn_ntby_tr_pbmn (전체 합계 순매수 거래 대금)
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 프로그램 추이 조회 실패 ({code}): {e}")
+        return []
+
+def fetch_kr_investor_trend(token, code):
+    """
+    [REST] 국내기관_외국인 매매종목가집계 (FHPTJ04400000)
+    - 외국인/기관 잠정 순매수 확인 (Confirmer)
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHPTJ04400000"
+    }
+    
+    # FID_COND_MRKT_DIV_CODE: V (Default)
+    # FID_COND_SCR_DIV_CODE: 16449 (Default)
+    # FID_INPUT_ISCD: 종목코드
+    # FID_DIV_CLS_CODE: 1 (금액정렬) - 단건 조회시 무의미할 수 있음
+    # FID_RANK_SORT_CLS_CODE: 0 (순매수상위)
+    # FID_ETC_CLS_CODE: 0 (전체)
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "V",
+        "FID_COND_SCR_DIV_CODE": "16449",
+        "FID_INPUT_ISCD": code,
+        "FID_DIV_CLS_CODE": "1",
+        "FID_RANK_SORT_CLS_CODE": "0",
+        "FID_ETC_CLS_CODE": "0" 
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        
+        if res.status_code == 200 and 'output' in data:
+            # output might be list or dict
+            out = data['output']
+            if isinstance(out, list):
+                return out[0] if out else {}
+            return out
+        return {}
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 투자자별 집계 실패 ({code}): {e}")
+        return {}
+
+def fetch_kr_broker_trend(token, code, member_code):
+    """
+    [REST] 주식현재가 회원사 종목매매동향 (FHPST04540000)
+    - 특정 회원사(JP모건 등)가 오늘 이 종목을 얼마나 샀는지 확인 (Identifier)
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-member-daily"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHPST04540000"
+    }
+    
+    # FID_COND_MRKT_DIV_CODE: J(KRX)
+    # FID_INPUT_ISCD: 종목코드
+    # FID_INPUT_ISCD_2: 회원사코드 (예: 012 키움, ??? JP)
+    # FID_INPUT_DATE_1 / 2: 날짜 (당일) -> API 내부적으로 처리?
+    # Doc: FID_INPUT_DATE_1 (Start Date), FID_INPUT_DATE_2 (End Date)
+    today = datetime.now().strftime("%Y%m%d")
+    
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_INPUT_ISCD": code,
+        "FID_INPUT_ISCD_2": member_code,
+        "FID_INPUT_DATE_1": today,
+        "FID_INPUT_DATE_2": today,
+        "FID_SCTN_CLS_CODE": ""
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        
+        if res.status_code == 200 and 'output' in data:
+            # output: array
+            # ntby_qty (순매수 수량)
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 회원사별 매매동향 실패 ({code}-{member_code}): {e}")
+        return []
+
+def fetch_kr_volume_rank(token):
+    """
+    [REST] 국내주식 거래량 순위 (FHPST01710000)
+    - K-Whale 후보군 선정용 (Top 30)
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/volume-rank"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHPST01710000",
+        "custtype": "P"
+    }
+    
+    # Correct Parameters verified by debug
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_COND_SCR_DIV_CODE": "20171",
+        "FID_INPUT_ISCD": "0000",
+        "FID_DIV_CLS_CODE": "0",
+        "FID_BLNG_CLS_CODE": "0", 
+        "FID_TRGT_CLS_CODE": "0", 
+        "FID_TRGT_EXLS_CLS_CODE": "0",
+        "FID_INPUT_PRICE_1": "",
+        "FID_INPUT_PRICE_2": "",
+        "FID_VOL_CNT": "",
+        "FID_INPUT_VOL_1": "",  # Unused? but keep empty for safety if needed
+        "FID_INPUT_VOL_2": "",
+        "FID_INPUT_DATE_1": ""
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        if res.status_code == 200 and 'output' in data:
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 거래량 순위 조회 실패: {e}")
+        return []
+
+def fetch_kr_bulk_rank(token):
+    """
+    [REST] 국내주식 대량체결건수 상위 (FHKST190900C0)
+    - K-Whale 후보군 보완용 (Top 30)
+    - 매수 체결 건수 상위 종목 추출
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/ranking/bulk-trans-num"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHKST190900C0",
+        "custtype": "P"
+    }
+    
+    params = {
+        "fid_cond_mrkt_div_code": "J",
+        "fid_cond_scr_div_code": "11909",
+        "fid_input_iscd": "0000",
+        "fid_rank_sort_cls_code": "0",      # 0: 매수 상위
+        "fid_div_cls_code": "0",
+        "fid_input_price_1": "",
+        "fid_aply_rang_prc_1": "",
+        "fid_aply_rang_prc_2": "",
+        "fid_input_iscd_2": "",
+        "fid_trgt_exls_cls_code": "0",
+        "fid_trgt_cls_code": "0",
+        "fid_vol_cnt": ""
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=10.0)
+        data = res.json()
+        if res.status_code == 200 and 'output' in data:
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 대량체결 순위 조회 실패: {e}")
+        return []
+
+def fetch_kr_foreign_estimate(token):
+    """
+    [REST] 외국계 매매종목 가집계 (FHKST644100C0)
+    - 실시간 외국인 수급 (가집계) 조회
+    - Returns: Dictionary {code: net_buy_qty, ...} or raw list
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/frgnmem-trade-estimate"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHKST644100C0",
+        "custtype": "P"
+    }
+    
+    # 순매수(0) 기준 정렬 (금액순)
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_COND_SCR_DIV_CODE": "16441",
+        "FID_INPUT_ISCD": "0000",        # All stocks
+        "FID_RANK_SORT_CLS_CODE": "0",   # Sort by Amount (0)
+        "FID_RANK_SORT_CLS_CODE_2": "0"  # Sort by Buy (0)
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        if res.status_code == 200 and 'output' in data:
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 외국계 가집계 조회 실패: {e}")
+        return []

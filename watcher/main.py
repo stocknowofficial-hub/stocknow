@@ -15,6 +15,8 @@ from watcher.tasks.rank_poller_2 import run_us_rank_poller
 from watcher.tasks.condition_watcher_us import run_condition_watcher_us
 from watcher.tasks.trump_watcher import run_trump_watcher
 from watcher.tasks.report_watcher import run_report_watcher # ✅ New
+from watcher.tasks.whale_watcher_us import run_whale_watcher_us # 🐳 Whale Hunter
+from watcher.tasks.whale_watcher_kr import run_whale_watcher_kr # 🐳 K-Whale Hunter
 from common.logger import setup_logger # ✅ Logger Import
 
 logger = setup_logger("Watcher", "logs/watcher", "watcher.log")
@@ -34,6 +36,11 @@ async def run_scheduled_restarter():
     
     logger.info("📅 [Restarter] 정기 재기동 스케줄러 가동 (Target: 07:00, 19:00 KST)")
     
+    # ✅ [Startup Delay] 프로세스 시작 직후 재기동 윈도우(0-5분)에 재진입하여 무한 루프에 빠지는 것을 방지
+    # 예: 07:00에 종료 -> 07:00:10에 재시작 -> 또 07:00이라 종료 반복 방지
+    # 10분간 대기 후 스케줄링 시작
+    await asyncio.sleep(600)
+
     while True:
         now = datetime.now()
         hour = now.hour
@@ -93,6 +100,12 @@ async def main():
 
         # 📑 리포트 감시 (BlackRock / Kiwoom)
         run_report_watcher(),
+
+        # 🐳 [Whale Hunter] 미국 대량 수급
+        run_whale_watcher_us(approval_key, access_token), 
+
+        # 🐳 [K-Whale Hunter] 국내 수급 (Program + Foreigner)
+        run_whale_watcher_kr(approval_key, access_token),
         
         # 🔄 스케줄러
         run_scheduled_restarter()

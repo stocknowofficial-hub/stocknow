@@ -15,8 +15,37 @@ from common.config import settings
 from common.logger import setup_logger # ✅ Logger Import
 from worker.modules.news_worker import NewsWorker
 
+import socket
+import time
+
+# ... (existing imports)
+
 # ✅ Logger Setup
 logger = setup_logger("Worker", "logs/worker", "worker.log")
+
+def wait_for_dns(host, timeout=30):
+    """Wait for DNS resolution to be available."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            ip = socket.gethostbyname(host)
+            logger.info(f"✅ [DNS] Resolved '{host}' to {ip}")
+            return True
+        except socket.gaierror:
+            logger.warning(f"⏳ [DNS] Waiting for '{host}' resolution...")
+            time.sleep(2)
+        except Exception as e:
+            logger.warning(f"⚠️ [DNS] Error resolving '{host}': {e}")
+            time.sleep(2)
+    
+    logger.error(f"❌ [DNS] Failed to resolve '{host}' after {timeout}s. Exiting.")
+    return False
+
+# 🔍 Pre-check: Wait for Redis DNS
+if not wait_for_dns(settings.REDIS_HOST):
+    logger.critical(f"🔥 [Startup] Cannot resolve Redis host: {settings.REDIS_HOST}. Check Docker Network.")
+    # We allow it to crash so Docker restarts it, but now with a clear log
+    # sys.exit(1) # Optional: exit implies restart
 
 BACKEND_URL = settings.BACKEND_URL
 
@@ -279,7 +308,12 @@ async def broadcast_message(bot, message_data):
             header = f"🇺🇸 [미국 포착]" if msg_type == "CONDITION_US" else f"🔥 [국내 포착]"
             
             # VIP: Full Text
-            text_vip = f"{header} {name}\n{emoji} 등락률: {rate}%\n💰 현재가: {price}\n#속보"
+            try:
+                rate_val = float(rate)
+                rate_str = f"{rate_val:.2f}"
+            except: rate_str = rate
+
+            text_vip = f"{header} {name}\n{emoji} 등락률: {rate_str}%\n💰 현재가: {price}\n#속보"
             # Free: Same for simple alerts (or add teaser if analysis exists? Condition usually has no analysis)
             text_free = text_vip # Condition alerts are simple enough to share? Or hide price? User didn't specify for Condition.
             # User example was for "AI Analysis". Condition alerts might be separate.
@@ -302,8 +336,13 @@ async def broadcast_message(bot, message_data):
                 rate = message_data.get('rate')
                 market_info = ""
                 if price and rate:
-                    rate_emoji = "🚀" if float(rate) > 0 else "💧"
-                    market_info = f"{rate_emoji} 등락률: {rate}% | 💰 현재가: {price}\n"
+                    try:
+                        rate_val = float(rate)
+                        rate_emoji = "🚀" if rate_val > 0 else "💧"
+                        market_info = f"{rate_emoji} 등락률: {rate_val:.2f}% | 💰 현재가: {price}\n"
+                    except:
+                        rate_emoji = "🚀" if float(rate) > 0 else "💧"
+                        market_info = f"{rate_emoji} 등락률: {rate}% | 💰 현재가: {price}\n"
                 
                 judgment_line = f"📊 판단: {sent_emoji}\n" if sentiment != "Neutral" else ""
                 link_label = "관련 뉴스"
@@ -342,6 +381,86 @@ async def broadcast_message(bot, message_data):
             
             # Free: Teaser (Hide Summary)
             text_free = f"{name}\n------------------------------\n🔒 (AI 분석 내용은 Premium 전용)\n------------------------------\n🔗 [원문 보기]({link})\n{upgrade_link}"
+
+        elif msg_type == "WHALE_SUMMARY":
+            # 🐳 Whale Hunter Format (US)
+            extra = message_data.get('extra_info', {})
+            big_tick_count = extra.get('big_tick_count', 'N/A')
+            threshold_val = extra.get('threshold', 100000)
+            threshold_str = f"${threshold_val:,.0f}" 
+            
+            price_str = message_data.get('price', '$0')
+            rate_str = message_data.get('rate', '0')
+            
+            pure_name = name.replace("🐳 [Whale] ", "")
+            
+            # Simple Format (No AI)
+            text_body = (
+                f"🐳 [US 거래량 대량 수급 포착] {pure_name}\n\n"
+                f"💰 현재가: {price_str} ({rate_str}%)\n\n"
+                f"🚨 포착 사유: 1분간 {threshold_str} 이상 체결 {big_tick_count}건 발생\n\n"
+                f"#WhaleHunter #US #미국장"
+            )
+            text_vip = text_body
+            text_free = text_body
+
+        elif msg_type == "K_WHALE_SUMMARY":
+            # 🐳 K-Whale Hunter Format (KR)
+            extra = message_data.get('extra_info', {})
+            
+            # Data from Watcher (Unit: Million KRW)
+            p_delta = extra.get('program_delta', 0)
+            p_total = extra.get('program_total', 0)
+            f_delta = extra.get('foreign_delta', 0)
+            f_total = extra.get('foreign_total', 0)
+            
+            # Helper: Convert Million -> Eok (100 Million) string
+            def to_eok(val):
+                try:
+                    v_float = float(val) / 100
+                    sign = "+" if v_float > 0 else ""
+                    return f"{sign}{v_float:.1f}억"
+                except: return str(val)
+
+            p_delta_str = to_eok(p_delta)
+            p_total_str = to_eok(p_total)
+            f_delta_str = to_eok(f_delta)
+            f_total_str = to_eok(f_total)
+            
+            # ⚠️ 외국인 순매도 경고
+            f_warn = "⚠️" if f_total < 0 else ""
+            
+            price_str = message_data.get('price', '0')
+            rate_str = message_data.get('rate', '0')
+            
+            pure_name = name.replace("🐳 [K-Whale] ", "")
+            
+            # Simple Format (No AI)
+            text_body = (
+                f"🐳 [거래량 대량 수급 포착] {pure_name}\n\n"
+                f"💰 현재가: {price_str} ({rate_str}%)\n\n"
+                f"🚨 포착 사유 (30초 급증):\n"
+                f"• 프로그램: *{p_delta_str}* (누적: {p_total_str})\n"
+                f"• 외    국인: *{f_delta_str}* (누적: {f_total_str}) {f_warn}\n\n"
+                f"#KWhale #수급포착 #국장"
+            )
+            text_vip = text_body
+            text_free = text_body
+
+        elif msg_type == "WHALE_BOARD_UPDATE":
+             # 📊 Dashboard Link Update
+             title = message_data.get('title', 'Whale Dashboard')
+             link = message_data.get('link', '')
+             
+             text_body = (
+                 f"📊 [{title}] 실시간 업데이트\n"
+                 f"------------------------------\n"
+                 f"실시간 수급 및 거래량 급등 현황판이 갱신되었습니다.\n"
+                 f"수시로 확인하여 시장 주도주를 놓치지 마세요!\n\n"
+                 f"🔗 [전체 현황판 보기]({link})"
+             )
+             text_vip = text_body
+             text_free = text_body
 
         # --------------------------------------------------------------------------
         # 2. 전송 로직 (Dual Channel)
@@ -475,6 +594,9 @@ async def run_scheduled_restarter():
     import signal
     
     logger.info("📅 [Restarter] 정기 재기동 스케줄러 가동 (Target: 07:00, 19:00 KST)")
+    
+    # ✅ [Startup Delay] 프로세스 시작 직후 재기동 윈도우(0-5분)에 재진입하여 무한 루프에 빠지는 것을 방지
+    await asyncio.sleep(600)
     
     while True:
         now = datetime.now()

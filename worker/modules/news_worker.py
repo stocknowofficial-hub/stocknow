@@ -116,6 +116,32 @@ class NewsWorker:
             return await self.gemini.search_and_summarize(query, link_keyword=clean_keyword, market_context=market_context)
 
         # -----------------------------------------------------
+        # E. 고래 포착 (WHALE_ALERT) - AI Bypass
+        # -----------------------------------------------------
+        elif msg_type == 'WHALE_ALERT':
+            name = msg_data.get('name')
+            # 📉 [Cost Optimization] AI Bypass
+            logger.info(f"🐋 [Whale] {name} 고래 포착 (AI 분석 생략)")
+            return {
+                "summary": "AI Analysis Skipped",
+                "sentiment": "Neutral",
+                "link": f"https://finance.yahoo.com/quote/{msg_data.get('code')}"
+            }
+
+        # -----------------------------------------------------
+        # F. K-Whale (국내 수급 포착) - AI Bypass
+        # -----------------------------------------------------
+        elif msg_type == 'K_WHALE_ALERT':
+            name = msg_data.get('name')
+            # 📉 [Cost Optimization] AI Bypass
+            logger.info(f"🐳 [K-Whale] {name} 국내 수급 포착 (AI 분석 생략)")
+            return {
+                "summary": "AI Analysis Skipped",
+                "sentiment": "Neutral",
+                "link": f"https://finance.naver.com/item/main.naver?code={msg_data.get('code')}"
+            }
+
+        # -----------------------------------------------------
         # B. 시황 브리핑 (MARKET_BRIEFING)
         # -----------------------------------------------------
         elif msg_type == 'MARKET_BRIEFING':
@@ -150,12 +176,6 @@ class NewsWorker:
             post_time = msg_data.get('time') # ✅ 시간 정보 추출
             
             query = text
-            pro_mode = 'TRUMP_ANALYSIS'
-            
-            print(f"🏛️ [SNS Analysis] {author} 발언 분석 중... (Length: {len(text)})")
-            return await self.gemini_pro.search_and_summarize(query, mode=pro_mode, original_url=original_url, post_time=post_time)
-
-        # -----------------------------------------------------
         # D. 주간 리포트 분석 (REPORT_ANALYSIS)
         # -----------------------------------------------------
         elif msg_type == 'REPORT_ANALYSIS':
@@ -183,8 +203,9 @@ class NewsWorker:
         try:
              # ✅ Use Async Context Manager
             async with r.pubsub() as pubsub:
-                channel = getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')
-                await pubsub.subscribe(channel)
+                channel_stock = getattr(settings, 'REDIS_CHANNEL_STOCK', 'stock_alert')
+                # ✅ Subscribe to both Stock Alerts and Whale Alerts
+                await pubsub.subscribe(channel_stock, "whale_alert")
 
                 # ✅ Manual Polling Loop (No GeneratorExit Issues)
                 while True:
@@ -197,9 +218,10 @@ class NewsWorker:
                             data_str = message['data']
                             try:
                                 data = ujson.loads(data_str)
+                                
                                 msg_type = data.get('type')
                                 
-                                if msg_type not in ['CONDITION', 'CONDITION_US', 'MARKET_BRIEFING', 'SNS_ANALYSIS', 'REPORT_ANALYSIS']:
+                                if msg_type not in ['CONDITION', 'CONDITION_US', 'MARKET_BRIEFING', 'SNS_ANALYSIS', 'REPORT_ANALYSIS', 'WHALE_ALERT', 'K_WHALE_ALERT']:
                                     pass # continue equivalent
                                 else:
                                     # 🧠 AI 분석 수행
@@ -225,6 +247,12 @@ class NewsWorker:
                                                 mk_source = data.get('source', 'Analyst')
                                                 title = f"📑 [{mk_source} 리포트 Output]"
                                                 category = "ANALYST_REPORT"
+                                            elif msg_type == 'WHALE_ALERT':
+                                                title = f"🐳 [Whale] {data.get('name')}"
+                                                category = "WHALE"
+                                            elif msg_type == 'K_WHALE_ALERT':
+                                                title = f"🐳 [K-Whale] {data.get('name')}"
+                                                category = "WHALE"
                                             else:
                                                 title = data.get('name')
                                                 category = "STOCK"
@@ -264,6 +292,22 @@ class NewsWorker:
                                                 "price": data.get('price'),
                                                 "rate": data.get('rate')
                                             }
+
+                                            # WHALE_ALERT인 경우 type 변경
+                                            if msg_type == 'WHALE_ALERT':
+                                                payload["type"] = "WHALE_SUMMARY"
+                                                payload["extra_info"] = {
+                                                    "big_tick_count": data.get('big_tick_count'),
+                                                    "threshold": data.get('threshold')
+                                                }
+                                            elif msg_type == 'K_WHALE_ALERT':
+                                                payload["type"] = "K_WHALE_SUMMARY"
+                                                payload["extra_info"] = {
+                                                    "program_delta": data.get('program_delta'),
+                                                    "program_total": data.get('program_total'),
+                                                    "foreign_delta": data.get('foreign_delta'),
+                                                    "foreign_total": data.get('foreign_total')
+                                                }
                                             
                                             if msg_type == 'SNS_ANALYSIS':
                                                 pass
