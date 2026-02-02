@@ -93,54 +93,7 @@ async def run_whale_watcher_kr(approval_key, access_token):
                 continue
 
             # ... (Skip existing code until Step 2 Foreign calculation) ...
-
-            # ---------------------------------------------------------
-            # 🕵️‍♂️ Step 2: 외국인 추정 (by 가집계 Map)
-            # ---------------------------------------------------------
-            frgn_net_buy_qty = frgn_map.get(code, 0)
-            # 금액(원) 추산 = 순매수량 * 현재가
-            current_frgn_total = int((frgn_net_buy_qty * current_price) / 1000000) # 백만
-
-            # Retrieve Previous Foreign Total
-            prev_frgn_total = prev_frgn_map.get(code)
-            prev_frgn_map[code] = current_frgn_total
             
-            # Calculate Foreign Delta
-            # If no prev data, delta is 0
-            frgn_delta = 0
-            if prev_frgn_total is not None:
-                frgn_delta = current_frgn_total - prev_frgn_total
-            
-            # 외국인 순매수 필터: "총 누적"이 양수여야 함 (검은머리 확인)
-            if current_frgn_total < 0:
-                continue
-
-            # ---------------------------------------------------------
-            # 🚨 Alert: 조건 만족!
-            # ---------------------------------------------------------
-            print(f"🐳 [K-Whale] {name}({code}) 포착! Program: +{prog_delta}백만(Total:{current_prog_total}), Foreign: +{frgn_delta}백만(Total:{current_frgn_total})")
-            
-            payload = {
-                "type": "K_WHALE_ALERT",
-                "market": "KR",
-                "code": code,
-                "name": name,
-                "price": current_price,
-                "rate": rate,
-                "program_delta": prog_delta,
-                "program_total": current_prog_total,
-                "foreign_delta": frgn_delta,
-                "foreign_total": current_frgn_total
-            }
-            
-            await redis_client.publish("whale_alert", ujson.dumps(payload))
-            alert_history[code] = time.time()
-
-            actionable = check_today_actionable(access_token)
-            if actionable != "OPEN":
-                await asyncio.sleep(60)
-                continue
-                
             # 2. 거래량 급등/상위 종목 스캔 (후보군 선정)
             # 2. 후보군 선정 (Volume Rank + Bulk Rank w/ Duplicate Removal)
             # A. 거래량 상위
