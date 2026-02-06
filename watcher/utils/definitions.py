@@ -335,7 +335,7 @@ def fetch_prices_by_codes(token, codes_list):
                     item = data['output']
                     # 데이터 유효성 체크
                     if not item.get('last'): 
-                        print(f"⚠️ [FetchSkip] {code} in {excd}: No Price (last is empty)")
+                        # print(f"⚠️ [FetchSkip] {code} in {excd}: No Price (last is empty)")
                         continue 
                     
                     # 1. 등락률 계산 (rate가 없으면 base로 계산)
