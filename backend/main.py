@@ -76,6 +76,27 @@ def create_subscriber(sub: SubscriberCreate, db: Session = Depends(database.get_
         expiry_date=datetime.now() + timedelta(days=14) # ✅ 14일 뒤 만료
     )
     db.add(new_sub)
+    
+    # ✅ [Referral Reward] 추천인 보상 로직 (신규 가입 시에만)
+    if sub.referrer_id:
+        # 추천인 조회 (Referrer = Chat ID)
+        referrer = db.query(models.Subscriber).filter(models.Subscriber.chat_id == sub.referrer_id).first()
+        if referrer:
+            # 보상: +14일 (2주) 연장
+            # 만료일이 지났으면 '지금'부터 +14일, 안 지났으면 '기존만료일' +14일
+            current_expiry = referrer.expiry_date or datetime.now()
+            if current_expiry < datetime.now():
+                current_expiry = datetime.now()
+            
+            referrer.expiry_date = current_expiry + timedelta(days=14)
+            
+            # ✅ [Cap Update] 최대 연장 한도 (60일 = 약 8주)
+            max_limit = datetime.now() + timedelta(days=60)
+            if referrer.expiry_date > max_limit:
+                referrer.expiry_date = max_limit
+                logger.info(f"   ⚠️ [Cap Reached] Extension limited to 60 days.")
+            logger.info(f"🎁 [Referral Reward] {referrer.name} ({referrer.chat_id}) Extended by 14 days (New Expiry: {referrer.expiry_date})")
+
     db.commit()
     db.refresh(new_sub)
     logger.info(f"✨ New Subscriber (Trial Logic): {new_sub.name} ({new_sub.chat_id}) - Expires: {new_sub.expiry_date}")

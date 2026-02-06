@@ -240,6 +240,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 admin_msg = f"👤 **[신규 유저]**\n{name} ({chat_id}) 님이 무료 체험을 시작했습니다!"
                 await context.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
         except: pass
+        
+        # ✅ [Referral Promo] 추천인 프로모션 메시지 발송
+        try:
+            bot_username = context.bot.username
+            ref_link = f"https://t.me/{bot_username}?start=ref_{chat_id}"
+            
+            promo_msg = (
+                f"🎁 [친구 추천 이벤트] 무료 체험 연장 혜택\n\n"
+                f"지인에게 아래 링크를 공유하고 추천하면, 2주가 추가 연장되어 최대 2달(8주)까지 무료 체험 기간을 늘릴 수 있습니다!\n"
+                f"(친구가 가입 완료 시 즉시 적용됩니다)\n\n"
+                f"👇 나의 추천 링크 (복사해서 공유하세요)\n"
+                f"{ref_link}"
+            )
+            # 잠시 뒤에 보내는 느낌 (1초 딜레이)
+            await asyncio.sleep(1)
+            await update.message.reply_text(promo_msg)
+            # 3. [BCC] Admin Log
+            await send_log_to_admin(context.bot, promo_msg, f"{name} ({chat_id})")
+        except Exception as e:
+            logger.error(f"⚠️ 프로모션 메시지 발송 실패: {e}")
+
     else:
         err_msg = "⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
         await update.message.reply_text(err_msg)
@@ -653,13 +674,17 @@ async def main():
     await app.initialize()
     await app.start()
     
+    # ✅ [Debug] Identify Bot Username
+    me = await app.bot.get_me()
+    logger.info(f"🤖 [Bot Info] Username: @{me.username} (ID: {me.id})")
+    
     await app.updater.start_polling(
         allowed_updates=Update.ALL_TYPES,
         poll_interval=2.0,
         bootstrap_retries=-1
     )
     
-    logger.info("🤖 [Bot] Polling Started...")
+    logger.info(f"🤖 [Bot] Polling Started (@{me.username})...")
 
     # 2. Redis 리스너 & 뉴스 워커 병렬 실행
     worker = NewsWorker()
