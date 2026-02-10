@@ -35,6 +35,7 @@ class SubscriberCreate(BaseModel):
 class SubscriberResponse(BaseModel):
     chat_id: str
     is_active: bool
+    rewarded_referrer_id: str | None = None # ✅ [New] 보상받은 추천인 ID (알림용)
 
 class SubscriberDetail(BaseModel):
     chat_id: str
@@ -96,6 +97,9 @@ def create_subscriber(sub: SubscriberCreate, db: Session = Depends(database.get_
                 referrer.expiry_date = max_limit
                 logger.info(f"   ⚠️ [Cap Reached] Extension limited to 60 days.")
             logger.info(f"🎁 [Referral Reward] {referrer.name} ({referrer.chat_id}) Extended by 14 days (New Expiry: {referrer.expiry_date})")
+            
+            # [Notification Trigger] Response에 실어보냄
+            new_sub.rewarded_referrer_id = referrer.chat_id
 
     db.commit()
     db.refresh(new_sub)

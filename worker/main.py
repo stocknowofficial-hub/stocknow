@@ -76,9 +76,11 @@ async def register_subscriber(chat_id, name, username, referrer_id=None):
                 "referrer_id": referrer_id # ✅ Pass Referrer
             }
             async with session.post(f"{BACKEND_URL}/subscribers", json=payload) as resp:
-                return resp.status == 200
+                # Return (Success, Data)
+                data = await resp.json() if resp.status == 200 else {}
+                return resp.status == 200, data
     except Exception:
-        return False
+        return False, {}
 
 async def backend_update_subscriber(chat_id, payload):
     """구독자 정보 업데이트 (Backend PUT)"""
@@ -165,7 +167,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_expiry = now + timedelta(days=days)
         
         # 2. Backend Update (Register if new, Update if exists)
-        # 먼저 등록 시도 (신규일 수 있으므로)
+        # 먼저 등록 시도 (신규일 수 있으므로) - Ignore result/reward for secret plan
         await register_subscriber(chat_id, name, username, referrer_id)
         
         # 그리고 만료일 업데이트 (강제 덮어쓰기)
@@ -207,8 +209,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_log_to_admin(context.bot, err_msg, f"{name} ({chat_id})")
             return
 
-    success = await register_subscriber(chat_id, name, username, referrer_id)
+    success, data = await register_subscriber(chat_id, name, username, referrer_id)
     if success:
+        # ✅ [Notification] 추천인에게 보상 알림 발송
+        if data.get('rewarded_referrer_id'):
+            ref_id = data['rewarded_referrer_id']
+            try:
+                reward_msg = (
+                    f"🎉 [친구 추천 성공!]\n\n"
+                    f"{name}**님이 회원님의 추천 링크로 가입했습니다!\n"
+                    f"🎁 보상: 무료 체험 기간이 +2주 연장되었습니다.\n"
+                    f"(최대 60일까지 연장 가능)"
+                )
+                await context.bot.send_message(chat_id=ref_id, text=reward_msg)
+                logger.info(f"📣 [Referral Notification] Sent to {ref_id}")
+            except Exception as e:
+                logger.error(f"⚠️ [Referral Notification] Failed: {e}")
         # 🎁 VIP 채널 초대 링크 생성 (1회용)
         try:
             invite_link = await context.bot.create_chat_invite_link(
