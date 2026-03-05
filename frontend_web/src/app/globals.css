@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-red: #ff3b3b;
+  --color-brand-mint: #00ffd5;
+  --color-bg-dark: #0f1115;
+  --color-card-dark: #1a1d24;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg-dark);
+    color: #ffffff;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+}
