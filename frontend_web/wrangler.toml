@@ -1,15 +1,10 @@
 name = "stock-now-web"
-compatibility_date = "2024-01-01"
-pages_build_output_dir = ".vercel/output/static"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".open-next/assets"
 
 # Cloudflare D1 데이터베이스 바인딩
-# 아래 database_id 는 `wrangler d1 create stock-now-db` 실행 후 나오는 ID로 교체하세요.
 [[d1_databases]]
 binding = "DB"
 database_name = "stock-now-db"
 database_id = "32ab9af0-73b8-49b9-87df-fab641276b6f"
-
-# (선택) KV 저장소 - 세션 캐시 등 용도
-# [[kv_namespaces]]
-# binding = "KV"
-# id = "REPLACE_WITH_YOUR_KV_ID"
