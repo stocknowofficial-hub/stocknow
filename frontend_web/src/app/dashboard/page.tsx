@@ -3,8 +3,15 @@
 import { useSession, signOut } from "next-auth/react";
 import Image from "next/image";
 import { LogOut, Send, Zap, TrendingUp, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+
+interface ExtendedUser {
+    id?: string;
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+}
 
 export default function Dashboard() {
     const { data: session, status } = useSession();
@@ -33,7 +40,7 @@ export default function Dashboard() {
         email: session?.user?.email || "user@example.com",
         image: session?.user?.image || "https://api.dicebear.com/7.x/initials/svg?seed=" + (session?.user?.name || "U"),
         telegramLinked: false, // For testing, set to false
-        uuid: (session?.user as any)?.id || "mock-uuid-1234",
+        uuid: (session?.user as ExtendedUser)?.id || "mock-uuid-1234",
         krTier: "FREE",
         krExpiry: "2026-03-31",
         usTier: "PRO",
@@ -60,7 +67,13 @@ export default function Dashboard() {
                             <p className="text-sm font-medium leading-tight">{mockUser.name}</p>
                             <p className="text-xs text-gray-400">{mockUser.email}</p>
                         </div>
-                        <img src={mockUser.image} alt="Avatar" className="w-9 h-9 rounded-full ring-2 ring-white/10" />
+                        {mockUser.image ? (
+                            <Image src={mockUser.image} alt="Avatar" width={36} height={36} className="rounded-full ring-2 ring-white/10" />
+                        ) : (
+                            <div className="w-9 h-9 rounded-full ring-2 ring-white/10 bg-white/10 flex items-center justify-center text-sm font-bold">
+                                {mockUser.name?.[0] || "U"}
+                            </div>
+                        )}
                         <button
                             onClick={() => signOut({ callbackUrl: "/" })}
                             className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition"
