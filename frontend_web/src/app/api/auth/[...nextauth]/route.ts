@@ -3,6 +3,8 @@ import GoogleProvider from "next-auth/providers/google";
 import KakaoProvider from "next-auth/providers/kakao";
 import NaverProvider from "next-auth/providers/naver";
 
+export const runtime = "edge";
+
 const handler = NextAuth({
     providers: [
         GoogleProvider({
