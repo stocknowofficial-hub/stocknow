@@ -9,7 +9,7 @@ export default {
             queue: "dummy",
         },
     },
-    edgeExternals: ["node:crypto"],
+    edgeExternals: ["node:crypto", "next/dist/compiled/@ampproject/toolbox-optimizer"],
     middleware: {
         external: true,
         override: {
