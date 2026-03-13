@@ -167,10 +167,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_expiry = now + timedelta(days=days)
         
         # 2. Backend Update (Register if new, Update if exists)
-        # 먼저 등록 시도 (신규일 수 있으므로) - Ignore result/reward for secret plan
         await register_subscriber(chat_id, name, username, referrer_id)
         
-        # 그리고 만료일 업데이트 (강제 덮어쓰기)
         payload = {
             "tier": "PRO",
             "is_active": True,
@@ -183,30 +181,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"VIP 채널에서 최고의 정보를 받아보세요!"
             )
             await update.message.reply_text(success_msg)
-            # 3. [BCC] Admin Log
-            await send_log_to_admin(context.bot, success_msg, f"{name} ({chat_id})")
-            
-            # Admin Notification (To Maintainer) - REPLACED by BCC, but keeping specific alert?
-            # User asked to "copy message sent to bot". But Payment Alert is specific.
-            # I will keep Payment Alert as it has extra metadata (Expiry Date).
-            logger.info(f"💰 [Payment] {name} activated {plan_name}")
-            try:
-                if settings.TELEGRAM_CHAT_ID:
-                    admin_msg = f"💰 **[매출 알림]**\n{name} ({chat_id}) 님이 **{plan_name}**을 활성화했습니다!\n(만료일: {new_expiry.strftime('%Y-%m-%d')})"
-                    await context.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
-            except: pass
-            
-            # VIP 채널 링크 발송
-            try:
-                invite = await context.bot.create_chat_invite_link(settings.TELEGRAM_VIP_CHANNEL_ID, member_limit=1)
-                await update.message.reply_text(f"👉 [VIP 채널 입장]\n{invite.invite_link}")
-            except: pass
-            
-            return # 종료 (Start 로직 건너뜀)
+            return
         else:
-            err_msg = "⚠️ 처리 중 오류가 발생했습니다. 관리자에게 문의해주세요."
-            await update.message.reply_text(err_msg)
-            await send_log_to_admin(context.bot, err_msg, f"{name} ({chat_id})")
+            await update.message.reply_text("⚠️ 처리 중 오류가 발생했습니다. 관리자에게 문의해주세요.")
+            return
+
+    # ✅ [Linking] 웹 계정 연동 처리 (link_UUID)
+    if context.args and context.args[0].startswith("link_"):
+        token = context.args[0].replace("link_", "")
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "token": token,
+                    "chat_id": str(chat_id),
+                    "name": name,
+                    "username": username
+                }
+                async with session.post(f"{BACKEND_URL}/api/telegram/link-complete", json=payload) as resp:
+                    if resp.status == 200:
+                        success_msg = (
+                            f"✅ **[연동 성공]**\n\n"
+                            f"{name}님, 웹 계정과의 연동이 완료되었습니다!\n"
+                            f"이제 대시보드에서 실시간 수급 현황과 구독 상태를 관리하실 수 있습니다."
+                        )
+                        await update.message.reply_text(success_msg)
+                        return
+                    else:
+                        await update.message.reply_text("⚠️ 연동에 실패했습니다. 유요하지 않거나 만료된 토큰입니다.")
+                        return
+        except Exception as e:
+            logger.error(f"❌ [Link] Error: {e}")
+            await update.message.reply_text("⚠️ 서버 통신 중 오류가 발생했습니다.")
             return
 
     success, data = await register_subscriber(chat_id, name, username, referrer_id)

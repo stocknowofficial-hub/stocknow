@@ -1,95 +1,90 @@
-"use client";
-
-import Image from "next/image";
-import { ArrowRight } from "lucide-react";
-import { signIn } from "next-auth/react";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-[#0f1115] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Background glowing effects based on Brand colors (Mint & Red) */}
-      <div className="absolute top-[0%] left-[-10%] w-[50%] h-[50%] bg-[#00ffd5] rounded-full blur-[200px] opacity-[0.15] animate-pulse" />
-      <div className="absolute bottom-[0%] right-[-10%] w-[50%] h-[50%] bg-[#ff3b3b] rounded-full blur-[200px] opacity-[0.1] animate-pulse" style={{ animationDelay: '1s' }} />
-
-      {/* Main Login Card */}
-      <div className="bg-[#1a1d24]/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-2xl z-10">
-
-        {/* Logo Section */}
-        <div className="flex flex-col items-center mb-10">
-          <div className="relative w-36 h-36 mb-4 filter drop-shadow-[0_0_20px_rgba(255,59,59,0.3)] transition-transform hover:scale-105 duration-300">
-            {/* User's Custom Logo */}
-            <Image
-              src="/logo.png"
-              alt="Stock Now Logo"
-              fill
-              className="object-contain"
-              priority
-            />
-          </div>
-          <h1 className="text-4xl font-extrabold tracking-tight text-white mb-2 text-center drop-shadow-md">
-            STOCK <span className="text-[#00ffd5]">NOW</span>
-          </h1>
-          <p className="text-gray-400 text-sm text-center font-medium">
-            AI 기반 주식 퀀트 분석 및 텔레그램 실시간 알림
-          </p>
-        </div>
-
-        {/* Login Buttons */}
-        <div className="space-y-4">
-          <button
-            onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
-            className="w-full relative group overflow-hidden rounded-xl bg-[#ffffff] text-[#000000] font-semibold py-4 px-6 flex items-center justify-center transition-all hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(255,255,255,0.2)]"
-          >
-            <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
-              <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-              <path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.62z" />
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-            </svg>
-            구글 계정으로 로그인
-            <ArrowRight className="w-4 h-4 absolute right-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-          </button>
-
-          <button
-            onClick={() => signIn("kakao", { callbackUrl: "/dashboard" })}
-            className="w-full relative group overflow-hidden rounded-xl bg-[#FEE500] text-[#000000] font-semibold py-4 px-6 flex items-center justify-center transition-all hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(254,229,0,0.2)]"
-          >
-            <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 3c-4.97 0-9 3.18-9 7.11 0 2.53 1.7 4.75 4.3 5.96L6.55 19c-.06.2.14.37.31.25l3.86-2.61c.42.04.85.07 1.28.07 4.97 0 9-3.18 9-7.11C21 6.18 16.97 3 12 3z" />
-            </svg>
-            카카오 계정으로 로그인
-            <ArrowRight className="w-4 h-4 absolute right-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-          </button>
-
-          <button
-            onClick={() => signIn("naver", { callbackUrl: "/dashboard" })}
-            className="w-full relative group overflow-hidden rounded-xl bg-[#03C75A] text-white font-semibold py-4 px-6 flex items-center justify-center transition-all hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(3,199,90,0.2)]"
-          >
-            <svg className="w-6 h-6 mr-[10px] ml-[-2px]" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16.27 10.64v6.62h-4.2V8.47l-4.14 8.79H4V4.54h4.2v6.2l4.14-8.73h3.93v8.63z" />
-            </svg>
-            네이버 계정으로 로그인
-            <ArrowRight className="w-4 h-4 absolute right-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-          </button>
-        </div>
-
-        {/* Form Separator */}
-        <div className="flex items-center my-6">
-          <div className="flex-1 border-t border-white/10"></div>
-          <span className="px-3 text-xs text-gray-500 uppercase tracking-widest">or continue as guest</span>
-          <div className="flex-1 border-t border-white/10"></div>
-        </div>
-
-        <button className="w-full relative rounded-xl bg-transparent border border-white/20 text-gray-300 font-medium py-3.5 px-6 transition-all hover:bg-white/5 hover:text-white">
-          서비스 둘러보기
-        </button>
-
-        {/* Footer info */}
-        <div className="mt-8 text-center text-xs text-gray-500 space-y-1">
-          <p>가입 시 Stock Now의 <a href="#" className="underline hover:text-white transition-colors">이용약관</a> 및 <a href="#" className="underline hover:text-white transition-colors">개인정보처리방침</a>에</p>
-          <p>동의하는 것으로 간주합니다.</p>
-        </div>
+    <main className="min-h-screen bg-[#0a0a0c] text-white selection:bg-purple-500/30 font-sans">
+      {/* Background Decorative Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full" />
+        <div className="absolute top-[20%] -right-[10%] w-[35%] h-[35%] bg-blue-600/10 blur-[120px] rounded-full" />
       </div>
-    </div>
+
+      {/* Navigation */}
+      <nav className="relative z-10 flex items-center justify-between px-6 py-6 mx-auto max-w-7xl">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center font-bold text-xl shadow-lg shadow-purple-500/20">
+            S
+          </div>
+          <span className="text-xl font-bold tracking-tight">StockNow</span>
+        </div>
+        <div className="flex items-center gap-6">
+          <Link href="/auth/signin" className="px-5 py-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-all border border-white/10 text-sm font-medium">
+            로그인
+          </Link>
+          <Link href="/dashboard" className="px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 hover:opacity-90 transition-all text-sm font-semibold shadow-lg shadow-purple-500/20">
+            시작하기
+          </Link>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="relative z-10 px-6 pt-24 pb-32 mx-auto max-w-7xl text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold mb-8">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+          </span>
+          실시간 고래 수급 감지 시스템 v2.0
+        </div>
+        
+        <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-8 leading-[1.1]">
+          수급의 흐름을 <br />
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-blue-400 to-emerald-400">
+            실시간으로 읽다
+          </span>
+        </h1>
+        
+        <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto mb-12 leading-relaxed">
+          국내외 고래들의 실시간 수급을 AI가 분석합니다. <br />
+          텔레그램 알림과 웹 대시보드로 시장의 기회를 놓치지 마세요.
+        </p>
+
+        <div className="flex flex-row items-center justify-center gap-4">
+          <Link href="/dashboard" className="px-8 py-4 rounded-2xl bg-white text-black font-bold text-lg hover:scale-[1.02] transition-all shadow-xl shadow-white/5">
+            지금 시작하기
+          </Link>
+          <button className="px-8 py-4 rounded-2xl bg-white/5 border border-white/10 font-bold text-lg hover:bg-white/10 transition-all backdrop-blur-sm">
+            기능 소개
+          </button>
+        </div>
+
+        {/* Hero Image Mockup Area */}
+        <div className="mt-20 relative px-4 mx-auto max-w-5xl">
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-transparent to-transparent z-10" />
+          <div className="rounded-3xl border border-white/10 overflow-hidden shadow-2xl shadow-purple-500/10 aspect-[16/9] bg-white/5 relative">
+            <div className="absolute inset-0 flex items-center justify-center text-white/5 uppercase tracking-[0.2em] font-black text-4xl -rotate-12 select-none">
+              StockNow Analytics
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Grid */}
+      <section className="relative z-10 px-6 py-24 mx-auto max-w-7xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            { title: "실시간 고래 감지", desc: "주요 거래소의 대량 입출금을 초 단위로 추적합니다.", icon: "⚡" },
+            { title: "AI 수급 분석", desc: "Gemini AI가 수급의 의도와 향후 흐름을 예측합니다.", icon: "🤖" },
+            { title: "텔레그램 즉시 알림", desc: "포착된 기회는 즉시 텔레그램으로 전송됩니다.", icon: "📱" }
+          ].map((f, i) => (
+            <div key={i} className="p-8 rounded-3xl bg-white/[0.02] border border-white/10 hover:border-white/20 transition-all">
+              <div className="text-3xl mb-4">{f.icon}</div>
+              <h3 className="text-xl font-bold mb-3">{f.title}</h3>
+              <p className="text-gray-500 leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }
