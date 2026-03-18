@@ -43,6 +43,7 @@
   - `worker`: 감지된 정보 기반 Gemini AI 분석 -> Telegram 채널/그룹 발송.
 - **가입 & 결제 엔진 (Cloudflare Pages/Workers 기반)**:
   1. 유저가 **Cloudflare 웹페이지** 접속 후 **소셜 로그인** (플랫폼 신뢰도 확보).
+  -> 꼭 소셜 로그인안하고 결제연동해도되면 그대로 연동해도됨! 이거는 같이 생각해보자.
   2. 내 정보 탭에서 **텔레그램 계정 연동(app_id <-> chat_id 매핑)**.
   3. **Payapp 결제** 완료 시 Cloudflare Worker가 Webhook 수신, D1 DB 반영.
   4. 웹 백엔드(Worker)가 텔레그램 Bot API를 호출해 유저를 KR/US 전용 채널에 **자동 초대** 발송.

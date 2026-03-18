@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "pages:build": "npx @opennextjs/cloudflare build",
-    "pages:deploy": "npm run pages:build && wrangler pages deploy .open-next/assets",
+    "pages:deploy": "npm run pages:build && node scripts/cf-deploy.mjs",
     "start": "next start",
     "lint": "eslint"
   },
@@ -27,7 +27,7 @@
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "15.1.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "^4.73.0"

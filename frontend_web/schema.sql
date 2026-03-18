@@ -1,13 +1,15 @@
 -- Users Table (Auth + Profile)
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  id_type TEXT NOT NULL, -- 'google', 'kakao', 'naver'
-  id_social TEXT NOT NULL, -- social provider unique id
+  id_type TEXT, -- 'google', 'kakao', 'naver', 'telegram'
+  id_social TEXT, -- social provider unique id
   email TEXT UNIQUE,
+  emailVerified DATETIME, -- Added for NextAuth compatibility
   name TEXT,
   image TEXT,
   role TEXT DEFAULT 'user',
   telegram_id TEXT,
+  trial_started_at DATETIME, -- Separate trial start tracking
   referred_by TEXT, -- ID of the user who referred this user
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP

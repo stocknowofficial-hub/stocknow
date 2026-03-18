@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(node -e \"require\\(''next-auth/providers/oauth''\\)\")",
+      "Bash(node -e \"const t = require\\(''next-auth''\\); console.log\\(Object.keys\\(t\\)\\)\")"
+    ]
+  }
+}

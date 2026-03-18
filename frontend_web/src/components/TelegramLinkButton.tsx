@@ -2,18 +2,24 @@
 
 import { useState } from 'react';
 
-export function TelegramLinkButton() {
+interface TelegramLinkButtonProps {
+  isLinked?: boolean;
+}
+
+export function TelegramLinkButton({ isLinked = false }: TelegramLinkButtonProps) {
   const [loading, setLoading] = useState(false);
+  const [linked, setLinked] = useState(isLinked);
 
   const handleLink = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/auth/telegram', { method: 'POST' });
       const data = await res.json();
-      
+
       if (data.link) {
-        // Open Telegram link in a new tab
         window.open(data.link, '_blank');
+        // 팝업을 열었으므로 연동 중 상태로 표시 (새로고침 시 DB에서 확인됨)
+        setLinked(true);
       } else {
         alert('연동 링크 생성에 실패했습니다.');
       }
@@ -24,6 +30,14 @@ export function TelegramLinkButton() {
       setLoading(false);
     }
   };
+
+  if (linked) {
+    return (
+      <div className="w-full sm:w-auto px-6 py-3 bg-emerald-500/20 text-emerald-400 font-bold rounded-2xl border border-emerald-500/30 flex items-center justify-center gap-2">
+        <span>✅ 텔레그램 연동됨</span>
+      </div>
+    );
+  }
 
   return (
     <button
