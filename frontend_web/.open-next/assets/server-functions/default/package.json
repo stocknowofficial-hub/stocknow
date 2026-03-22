@@ -1,0 +1,35 @@
+{
+  "name": "frontend_web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "pages:build": "npx @opennextjs/cloudflare build",
+    "pages:deploy": "npm run pages:build && node scripts/cf-deploy.mjs",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@auth/d1-adapter": "^1.11.1",
+    "next": "^15.1.0",
+    "next-auth": "^4.24.13",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260313.1",
+    "@opennextjs/cloudflare": "^1.17.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "15.1.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.73.0"
+  }
+}

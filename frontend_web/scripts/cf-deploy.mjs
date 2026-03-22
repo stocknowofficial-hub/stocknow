@@ -27,4 +27,4 @@ for (const dir of ["cloudflare", "middleware", "server-functions", ".build"]) {
 }
 
 console.log("\n🚀 Running wrangler pages deploy...\n");
-execSync("wrangler pages deploy .open-next/assets", { stdio: "inherit" });
+execSync("npx wrangler pages deploy .open-next/assets --commit-dirty=true", { stdio: "inherit" });

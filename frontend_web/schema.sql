@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   image TEXT,
   role TEXT DEFAULT 'user',
   telegram_id TEXT,
+  telegram_name TEXT,
   trial_started_at DATETIME, -- Separate trial start tracking
   referred_by TEXT, -- ID of the user who referred this user
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -75,4 +76,20 @@ CREATE TABLE IF NOT EXISTS telegram_link_tokens (
   user_id TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Payments Table (결제 이력 + 중복 방지)
+-- plan_id: 'monthly' | 'annual' | 'monthly_kr' | 'monthly_us' | 'premium_monthly' | ...
+-- plan:    'standard' | 'standard_kr' | 'standard_us' | 'premium' | ...
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pay_id TEXT UNIQUE NOT NULL,           -- Payapp 고유 결제 ID (중복 처리 방지)
+  user_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,                 -- 결제한 상품 ID (예: 'monthly', 'annual')
+  plan TEXT NOT NULL,                    -- 반영될 플랜 (예: 'standard', 'premium')
+  amount INTEGER NOT NULL,              -- 결제 금액 (원)
+  months INTEGER NOT NULL,              -- 연장 개월 수
+  status TEXT DEFAULT 'completed',      -- 'completed' | 'refunded'
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
 );

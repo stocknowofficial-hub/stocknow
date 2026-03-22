@@ -1,5 +1,15 @@
 import { NextResponse } from "next/server";
 
+function getDB(): import("@cloudflare/workers-types").D1Database | null {
+  try {
+    const { getCloudflareContext } = require("@opennextjs/cloudflare");
+    const ctx = getCloudflareContext();
+    if (ctx?.env?.DB) return ctx.env.DB;
+  } catch {}
+  const g = globalThis as any;
+  return g.__CF_ENV_DB ?? (process.env as any).DB ?? null;
+}
+
 export async function POST(request: Request) {
   try {
     const { chat_id, name, referrer_id } = await request.json();
@@ -8,7 +18,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing chat_id" }, { status: 400 });
     }
 
-    const db = process.env.DB as unknown as import("@cloudflare/workers-types").D1Database;
+    const db = getDB();
+    if (!db) return NextResponse.json({ error: "DB not available" }, { status: 500 });
 
     // 1. Check if user already exists (as telegram user or linked user)
     const existingUser = await db

@@ -268,9 +268,10 @@ export const authOptions: NextAuthOptions = {
             
             console.log("[Auth Callback] User UPSERT Success!", userResult.success);
 
+            // 신규 가입 시 7일 무료 체험 자동 부여 (기존 유저는 IGNORE로 건드리지 않음)
             const subResult = await db.prepare(
                 `INSERT OR IGNORE INTO subscriptions (user_id, plan, status, expires_at)
-                 VALUES (?, 'free', 'active', NULL)`
+                 VALUES (?, 'trial', 'active', datetime('now', '+7 days'))`
               ).bind(customId).run();
               
             console.log("[Auth Callback] Subscription UPSERT Success!", subResult.success);

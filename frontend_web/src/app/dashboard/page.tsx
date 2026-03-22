@@ -4,6 +4,9 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { TelegramLinkButton } from "@/components/TelegramLinkButton";
 import { PremiumUpgradeButton } from "@/components/PremiumUpgradeButton";
+import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { PaymentBanner } from "@/components/PaymentBanner";
+import { Suspense } from "react";
 
 interface Subscription {
   plan: string;
@@ -32,7 +35,9 @@ export default async function DashboardPage() {
   let telegramLinked = false;
 
   try {
-    const db = process.env.DB as unknown as import("@cloudflare/workers-types").D1Database;
+    const { getCloudflareContext } = require("@opennextjs/cloudflare");
+    const ctx = getCloudflareContext();
+    const db = ctx?.env?.DB as import("@cloudflare/workers-types").D1Database | undefined;
     if (db) {
       const [sub, referrals, userRow] = await Promise.all([
         db
@@ -73,10 +78,15 @@ export default async function DashboardPage() {
 
   const planLabel: Record<string, string> = {
     free: "FREE PLAN",
+    trial: "7일 무료 체험",
+    standard: "STANDARD",
+    standard_kr: "STANDARD KR",
+    standard_us: "STANDARD US",
     premium: "PREMIUM",
     pro: "PRO PLAN",
   };
-  const planDisplay = planLabel[plan] ?? "FREE PLAN";
+  const planDisplay = planLabel[plan] ?? plan.toUpperCase();
+  const isPaid = plan !== "free" && plan !== "trial";
 
   // expires_at = NULL → 무제한 (free plan은 만료 없음)
   const expiresDisplay = subscription?.expires_at
@@ -95,69 +105,13 @@ export default async function DashboardPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
       <div className="flex h-screen overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-64 border-r border-white/5 bg-white/[0.01] flex flex-col p-6 shrink-0">
-          <div className="flex items-center gap-2 mb-12">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">
-              S
-            </div>
-            <span className="text-lg font-bold">StockNow</span>
-          </div>
-
-          <nav className="flex-1 space-y-2">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 text-purple-400 font-medium transition-all group"
-            >
-              <span className="p-1.5 bg-purple-500/20 rounded-lg group-hover:bg-purple-500/30 transition-colors">
-                📊
-              </span>
-              대시보드
-            </Link>
-            <Link
-              href="/referrals"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 text-gray-400 font-medium transition-all group"
-            >
-              <span className="p-1.5 bg-white/5 rounded-lg group-hover:bg-white/10 transition-colors">
-                🎁
-              </span>
-              초대 혜택
-            </Link>
-            <Link
-              href="/settings"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 text-gray-400 font-medium transition-all group"
-            >
-              <span className="p-1.5 bg-white/5 rounded-lg group-hover:bg-white/10 transition-colors">
-                ⚙️
-              </span>
-              설정
-            </Link>
-          </nav>
-
-          <div className="mt-auto pt-6 border-t border-white/5">
-            <div className="flex items-center gap-3 px-2">
-              {session.user.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={session.user.image}
-                  alt="profile"
-                  className="w-10 h-10 rounded-full border border-white/10 object-cover"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-gray-700 to-gray-500 border border-white/10" />
-              )}
-              <div>
-                <div className="text-sm font-semibold">{session.user.name || "사용자"}</div>
-                <div className="text-xs text-gray-500 line-clamp-1">
-                  {session.user.email || ""}
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
+        <DashboardSidebar user={session.user} />
 
         {/* Main */}
         <main className="flex-1 overflow-y-auto p-8 lg:p-12">
+          <Suspense fallback={null}>
+            <PaymentBanner />
+          </Suspense>
           <header className="mb-10 flex items-center justify-between">
             <div>
               <h2 className="text-3xl font-bold mb-1">
@@ -168,14 +122,14 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-3 text-sm">
               <span
                 className={`px-3 py-1.5 rounded-full border font-medium flex items-center gap-2 ${
-                  plan === "free"
+                  !isPaid
                     ? "bg-white/5 text-gray-400 border-white/10"
                     : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                 }`}
               >
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    plan === "free" ? "bg-gray-500" : "bg-emerald-500 animate-pulse"
+                    !isPaid ? "bg-gray-500" : "bg-emerald-500 animate-pulse"
                   }`}
                 />
                 {planDisplay}
@@ -194,13 +148,15 @@ export default async function DashboardPage() {
                 <div>
                   <div className="text-4xl font-black mb-2 tracking-tight">{planDisplay}</div>
                   <p className="text-gray-400 text-sm mb-6">
-                    {plan === "free"
-                      ? "무료 플랜을 이용 중입니다. 텔레그램을 연동하여 실시간 알림을 받아보세요."
-                      : "프리미엄 플랜을 이용 중입니다. 모든 기능을 사용할 수 있습니다."}
+                    {plan === "trial"
+                      ? `7일 무료 체험 중입니다. ${expiresDisplay}에 체험이 종료되며, 이후 결제하시면 VIP 채널을 계속 이용하실 수 있습니다.`
+                      : isPaid
+                      ? "구독 중입니다. 모든 기능을 사용할 수 있습니다."
+                      : "무료 플랜을 이용 중입니다. 텔레그램을 연동하여 실시간 알림을 받아보세요."}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-3">
                     <TelegramLinkButton isLinked={telegramLinked} />
-                    {plan === "free" && <PremiumUpgradeButton />}
+                    {!isPaid && <PremiumUpgradeButton />}
                   </div>
                 </div>
                 <div className="text-right hidden sm:block">

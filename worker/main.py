@@ -48,8 +48,9 @@ if not wait_for_dns(settings.REDIS_HOST):
     # sys.exit(1) # Optional: exit implies restart
 
 BACKEND_URL = settings.BACKEND_URL
+CLOUDFLARE_URL = settings.CLOUDFLARE_URL
 
-logger.info(f"📤 [Worker System] 초기화 중... (Backend: {BACKEND_URL})")
+logger.info(f"📤 [Worker System] 초기화 중... (Backend: {BACKEND_URL}, Cloudflare: {CLOUDFLARE_URL})")
 
 # ==============================================================================
 # 🤖 1. 텔레그램 봇 로직 (수신 + 발송)
@@ -197,95 +198,107 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "name": name,
                     "username": username
                 }
-                async with session.post(f"{BACKEND_URL}/api/telegram/link-complete", json=payload) as resp:
+                async with session.post(f"{CLOUDFLARE_URL}/api/telegram/link-complete", json=payload) as resp:
                     if resp.status == 200:
+                        result = await resp.json()
+                        plan = result.get("plan", "free")
+                        expires_at = result.get("expires_at")
+
+                        # 1. 연동 성공 메시지 먼저
                         success_msg = (
-                            f"✅ **[연동 성공]**\n\n"
+                            f"✅ *[연동 성공]*\n\n"
                             f"{name}님, 웹 계정과의 연동이 완료되었습니다!\n"
-                            f"이제 대시보드에서 실시간 수급 현황과 구독 상태를 관리하실 수 있습니다."
+                            f"이제 대시보드에서 구독 상태를 관리하실 수 있습니다.\n"
+                            f"👉 {CLOUDFLARE_URL}/dashboard"
                         )
                         await update.message.reply_text(success_msg)
+
+                        # 2. 유료/체험 구독자면 VIP 초대 링크 발송
+                        if plan not in ("free",) and result.get("status") == "active":
+                            try:
+                                expires_unix = None
+                                if expires_at:
+                                    from datetime import timezone
+                                    dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                                    expires_unix = int(dt.timestamp())
+
+                                invite = await context.bot.create_chat_invite_link(
+                                    chat_id=settings.TELEGRAM_VIP_CHANNEL_ID,
+                                    member_limit=1,
+                                    expire_date=int(datetime.now().timestamp()) + 60 * 60 * 24 * 7
+                                )
+                                link_url = invite.invite_link
+
+                                plan_display = "7일 무료 체험" if plan == "trial" else plan.upper()
+                                expires_display = (
+                                    datetime.fromisoformat(expires_at.replace("Z", "")).strftime("%Y년 %m월 %d일")
+                                    if expires_at else "무제한"
+                                )
+
+                                invite_msg = (
+                                    f"🎉 *VIP 채널에 입장하세요*\n\n"
+                                    f"*{plan_display}*이 시작됩니다!\n\n"
+                                    f"📅 이용 기간: {expires_display}\n\n"
+                                    f"아래 링크로 VIP 채널에 입장하세요:\n"
+                                    f"👉 {link_url}\n\n"
+                                    f"⚠️ 이 링크는 1회용이며 7일간 유효합니다.\n"
+                                    f"입장 후 채널을 떠나지 마세요!"
+                                )
+                                await context.bot.send_message(chat_id=chat_id, text=invite_msg, parse_mode="Markdown")
+                                logger.info(f"🎫 [LinkComplete] VIP 초대 링크 발송 완료: {name} ({chat_id})")
+                            except Exception as e:
+                                logger.error(f"⚠️ [LinkComplete] VIP 초대 링크 발송 실패: {e}")
                         return
                     else:
-                        await update.message.reply_text("⚠️ 연동에 실패했습니다. 유요하지 않거나 만료된 토큰입니다.")
+                        await update.message.reply_text("⚠️ 연동에 실패했습니다. 유효하지 않거나 만료된 토큰입니다.")
                         return
         except Exception as e:
             logger.error(f"❌ [Link] Error: {e}")
             await update.message.reply_text("⚠️ 서버 통신 중 오류가 발생했습니다.")
             return
 
-    success, data = await register_subscriber(chat_id, name, username, referrer_id)
-    if success:
-        # ✅ [Notification] 추천인에게 보상 알림 발송
-        if data.get('rewarded_referrer_id'):
-            ref_id = data['rewarded_referrer_id']
-            try:
-                reward_msg = (
-                    f"🎉 [친구 추천 성공!]\n\n"
-                    f"{name}**님이 회원님의 추천 링크로 가입했습니다!\n"
-                    f"🎁 보상: 무료 체험 기간이 +2주 연장되었습니다.\n"
-                    f"(최대 60일까지 연장 가능)"
-                )
-                await context.bot.send_message(chat_id=ref_id, text=reward_msg)
-                logger.info(f"📣 [Referral Notification] Sent to {ref_id}")
-            except Exception as e:
-                logger.error(f"⚠️ [Referral Notification] Failed: {e}")
-        # 🎁 VIP 채널 초대 링크 생성 (1회용)
-        try:
-            invite_link = await context.bot.create_chat_invite_link(
-                chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, 
-                member_limit=1,
-                expire_date=None # 유효기간 없음 (들어올 때까지) or datetime.now() + 1 hour
-            )
-            link_url = invite_link.invite_link
-        except Exception as e:
-            logger.error(f"⚠️ 초대 링크 생성 실패: {e}")
-            link_url = "https://t.me/+..." # Fallback (혹은 관리자 문의)
+    # ✅ [D1 등록] Cloudflare D1에 텔레그램 유저 등록 + 무료 체험 부여 + VIP 초대 링크 발송
+    try:
+        headers = {"Authorization": f"Bearer {settings.CRON_SECRET}"}
+        payload = {
+            "chat_id": str(chat_id),
+            "name": name,
+            "username": user.username or "",
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{CLOUDFLARE_URL}/api/telegram/register",
+                json=payload,
+                headers=headers,
+            ) as resp:
+                result = await resp.json() if resp.status == 200 else {}
+                is_new = result.get("isNewTrial", False)
 
-        msg = (
-            f"🎉 환영합니다, {name}님!\n\n"
-            f"Stock Now VIP(Pro) 2주 무료 체험이 시작되었습니다.\n"
-            f"지금 바로 입장해서 실시간AI 분석 정보를 받아보세요!\n\n"
-            f"유명한 증시 주간 리포트, 트럼프 SNS 분석, 일일 브리핑 등 수많은 정보 제공!\n\n"
-            f"👉 [VIP 채널 입장하기]\n{link_url}\n\n"
-            f" 주의: 알림을 계속 받으려면 이 봇을 차단하지 마세요!"
-        )
-        await update.message.reply_text(msg)
-        await send_log_to_admin(context.bot, msg, f"{name} ({chat_id})")
-        
-        logger.info(f"👤 [New User] {name} ({chat_id}) 등록 완료 & 초대장 발송")
-        
-        # Admin Notification (신규 가입) - Explicit Alert kept
-        try:
-            if settings.TELEGRAM_CHAT_ID:
-                admin_msg = f"👤 **[신규 유저]**\n{name} ({chat_id}) 님이 무료 체험을 시작했습니다!"
-                await context.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
-        except: pass
-        
-        # ✅ [Referral Promo] 추천인 프로모션 메시지 발송
-        try:
-            bot_username = context.bot.username
-            ref_link = f"https://t.me/{bot_username}?start=ref_{chat_id}"
-            
-            promo_msg = (
-                f"🎁 [친구 추천 이벤트] 무료 체험 연장 혜택\n\n"
-                f"지인에게 아래 링크를 공유하고 추천하면, 2주가 추가 연장되어 최대 2달(8주)까지 무료 체험 기간을 늘릴 수 있습니다!\n"
-                f"(친구가 가입 완료 시 즉시 적용됩니다)\n\n"
-                f"👇 나의 추천 링크 (복사해서 공유하세요)\n"
-                f"{ref_link}"
-            )
-            # 잠시 뒤에 보내는 느낌 (1초 딜레이)
-            await asyncio.sleep(1)
-            await update.message.reply_text(promo_msg)
-            # 3. [BCC] Admin Log
-            await send_log_to_admin(context.bot, promo_msg, f"{name} ({chat_id})")
-        except Exception as e:
-            logger.error(f"⚠️ 프로모션 메시지 발송 실패: {e}")
-
-    else:
-        err_msg = "⚠️ 구독 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-        await update.message.reply_text(err_msg)
-        await send_log_to_admin(context.bot, err_msg, f"{name} ({chat_id})")
+                if resp.status == 200:
+                    invite_sent = result.get("inviteSent", False)
+                    if is_new:
+                        # 신규 체험 — VIP 초대 링크는 register API에서 이미 발송됨, 관리자 알림만
+                        if settings.TELEGRAM_CHAT_ID:
+                            try:
+                                await context.bot.send_message(
+                                    chat_id=settings.TELEGRAM_CHAT_ID,
+                                    text=f"👤 *[신규 체험 유저]*\n{name} ({chat_id}) 무료 체험 시작"
+                                )
+                            except: pass
+                    elif not invite_sent:
+                        # 기존 유저 + 구독 없음/만료 → 결제 유도
+                        await update.message.reply_text(
+                            f"✅ {name}님, 이미 등록된 계정입니다.\n"
+                            f"구독을 갱신하려면 홈페이지에서 결제해주세요:\n"
+                            f"👉 {CLOUDFLARE_URL}/dashboard"
+                        )
+                    # invite_sent=True이고 isNew=False: 기존 활성 유저 → VIP 초대 이미 발송, 추가 메시지 없음
+                else:
+                    logger.error(f"[Register] API 오류: {resp.status}")
+                    await update.message.reply_text("⚠️ 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+    except Exception as e:
+        logger.error(f"⚠️ [Register] D1 등록 실패: {e}")
+        await update.message.reply_text("⚠️ 서버 통신 중 오류가 발생했습니다.")
 
 async def run_telegram_bot(app, shutdown_event=None):
     """Redis 리스너 (봇 기능과 병행 실행) - Manual Polling"""
@@ -539,86 +552,93 @@ async def broadcast_message(bot, message_data):
         logger.error(f"❌ [Bot] 포맷팅 에러: {e}")
 
 async def run_expiry_checker(bot):
-
-    """(Scheduler) 매일 유료 기간 만료자를 확인하고 강퇴"""
+    """(Scheduler) 매일 자정 유료 구독 만료자를 Cloudflare D1에서 조회 후 강퇴 + 알림"""
     while True:
-        logger.info("📅 [Scheduler] Daily Expiry Check Started...")
+        logger.info("📅 [Expiry Checker] 만료 유저 검사 시작...")
         try:
-            # 1. Fetch All Users from Backend
+            headers = {"Authorization": f"Bearer {settings.CRON_SECRET}"}
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{BACKEND_URL}/subscribers/detail") as resp:
-                    if resp.status == 200:
-                        users = await resp.json()
+                # 1. 만료 유저 목록 조회
+                async with session.get(
+                    f"{CLOUDFLARE_URL}/api/cron/expired", headers=headers
+                ) as resp:
+                    if resp.status != 200:
+                        logger.error(f"⚠️ [Expiry] API 호출 실패: {resp.status}")
+                    else:
+                        data = await resp.json()
+                        users = data.get("users", [])
+                        logger.info(f"📋 [Expiry] 만료 유저 {len(users)}명 감지")
+
                         for u in users:
-                            # Check PRO/VIP & Expiry
-                            if u.get('tier') in ['PRO', 'VIP'] and u.get('expiry_date'):
-                                expiry_str = u['expiry_date'] 
-                                # Backend returns ISO format (e.g. 2026-01-25T...)
-                                expiry_dt = datetime.fromisoformat(expiry_str)
-                                
-                                if expiry_dt < datetime.now():
-                                    chat_id = u['chat_id']
-                                    name = u.get('name', 'User')
-                                    logger.info(f"⏳ [Expiry] 체험 만료 감지: {name} ({chat_id})")
-                                    
-                                    # Action 1: Kick (Ban & Unban)
-                                    try:
-                                        # VIP 채널에서 추방 (Ban)
-                                        await bot.ban_chat_member(chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, user_id=chat_id)
-                                        # 다시 들어올 수 있게 즉시 Unban
-                                        await bot.unban_chat_member(chat_id=settings.TELEGRAM_VIP_CHANNEL_ID, user_id=chat_id)
-                                        logger.info(f"👢 [Kick] 만료된 사용자 추방 완료: {name}")
-                                    except Exception as e:
-                                        logger.error(f"⚠️ [Kick Failed] 추방 실패 ({name}): {e}")
+                            user_id  = u.get("id")
+                            chat_id  = u.get("telegram_id")  # Telegram chat_id
+                            name     = u.get("name") or "회원"
+                            expires_at = u.get("expires_at", "")
 
-                                    # Action 2: Notification Message
-                                    try:
-                                        # Google Form Link Generation (Auto-fill Name)
-                                        import urllib.parse
-                                        # 텔레그램 이름이 없으면 '사용자'로 대체
-                                        safe_name = sub.name if sub.name else "사용자"
-                                        encoded_name = urllib.parse.quote(safe_name)
-                                        
-                                        # 구글 폼 링크 (이름 자동 입력)
-                                        voc_link = f"https://docs.google.com/forms/d/e/1FAIpQLSe4ICn7DbfNeeYLU9_NuMrFH7VBLjrOp62MVPiEubvE7Jslkw/viewform?usp=pp_url&entry.485428648={encoded_name}"
-                                        postype_url = "https://www.postype.com/@stock-now/post/21361212"
+                            logger.info(f"⏳ [Expiry] 처리 중: {name} (user_id={user_id}, telegram_id={chat_id})")
 
-                                        msg = (
-                                            f"😭 **{safe_name}님, 구독 기간이 만료되었습니다.**\n"
-                                            f"({expiry_str.split('T')[0]} 만료)\n\n"
-                                            f"더 이상 VIP 채널의 실시간 정보를 받아보실 수 없습니다.\n"
-                                            f"계속해서 최고의 투자 정보를 받아보시려면 멤버십을 연장해주세요!\n\n"
-                                            f"👉 **[멤버십 연장하러 가기]**\n"
-                                            f"{postype_url}\n\n"
-                                            f"📢 **[서비스 의견/불편 신고]**\n"
-                                            f"혹시 오류이거나 건의사항이 있으신가요?\n"
-                                            f"아래 링크를 통해 의견을 남겨주세요! (이름 자동입력)\n"
-                                            f"{voc_link}"
+                            # Action 1: VIP 채널에서 강퇴 (telegram_id 있을 때만)
+                            if chat_id:
+                                try:
+                                    await bot.ban_chat_member(
+                                        chat_id=settings.TELEGRAM_VIP_CHANNEL_ID,
+                                        user_id=int(chat_id)
+                                    )
+                                    # 즉시 unban — 다시 초대 링크로 재입장 가능하도록
+                                    await bot.unban_chat_member(
+                                        chat_id=settings.TELEGRAM_VIP_CHANNEL_ID,
+                                        user_id=int(chat_id)
+                                    )
+                                    logger.info(f"👢 [Kick] 강퇴 완료: {name} ({chat_id})")
+                                except Exception as e:
+                                    logger.error(f"⚠️ [Kick Failed] {name} ({chat_id}): {e}")
+
+                                # Action 2: 만료 알림 DM 발송
+                                try:
+                                    expires_display = expires_at.split("T")[0] if expires_at else "알 수 없음"
+                                    dashboard_url = f"{CLOUDFLARE_URL}/dashboard"
+                                    msg = (
+                                        f"😭 *{name}님, 구독이 만료되었습니다.*\n"
+                                        f"({expires_display} 만료)\n\n"
+                                        f"더 이상 VIP 채널의 실시간 정보를 받아보실 수 없습니다.\n"
+                                        f"계속해서 최고의 투자 정보를 받으시려면 멤버십을 갱신해주세요!\n\n"
+                                        f"👉 [멤버십 갱신하기]\n{dashboard_url}"
+                                    )
+                                    await bot.send_message(chat_id=int(chat_id), text=msg)
+                                    await send_log_to_admin(bot, msg, f"{name} ({chat_id})")
+                                    logger.info(f"📉 [Expiry] 만료 알림 발송 완료: {name}")
+
+                                    if settings.TELEGRAM_CHAT_ID:
+                                        admin_msg = (
+                                            f"📉 *[만료 처리]*\n"
+                                            f"{name} (telegram: {chat_id}) 구독 만료\n"
+                                            f"강퇴 및 알림 발송 완료"
                                         )
-                                        await bot.send_message(chat_id=chat_id, text=msg)
-                                        await send_log_to_admin(bot, msg, f"{safe_name} ({chat_id})")
-                                        logger.info(f"📉 [Expiry] 만료 알림 & VoC 링크 발송: {safe_name}")
-                                        
-                                        # Admin Notification (만료/강퇴)
-                                        try:
-                                            if settings.TELEGRAM_CHAT_ID:
-                                                admin_msg = f"📉 **[만료 알림]**\n{safe_name} ({chat_id}) 님의 구독이 만료되었습니다.\n(강퇴 및 알림 발송 완료)"
-                                                await bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg)
-                                        except: pass
-                                    except: pass
+                                        await bot.send_message(
+                                            chat_id=settings.TELEGRAM_CHAT_ID, text=admin_msg
+                                        )
+                                except Exception as e:
+                                    logger.error(f"⚠️ [Expiry Notice] DM 실패 ({name}): {e}")
+                            else:
+                                logger.warning(f"⚠️ [Expiry] telegram_id 없음 — 강퇴/알림 스킵: {name} (user_id={user_id})")
 
-                                    # Action 3: Mark Tier as 'FREE' & Inactive (Loop Kick 방지)
-                                    try:
-                                        # backend_update_subscriber 함수 재사용
-                                        payload = {"tier": "FREE", "is_active": False}
-                                        await backend_update_subscriber(chat_id, payload)
-                                        logger.info(f"🔄 [Update] 사용자 등급 변경 완료 (PRO -> FREE): {name}")
-                                    except Exception as e:
-                                        logger.error(f"⚠️ [Update Failed] 등급 변경 실패: {e}")
-                                        
+                            # Action 3: D1 status → 'expired' (루프 강퇴 방지)
+                            try:
+                                async with session.post(
+                                    f"{CLOUDFLARE_URL}/api/cron/expired",
+                                    headers=headers,
+                                    json={"user_id": user_id},
+                                ) as update_resp:
+                                    if update_resp.status == 200:
+                                        logger.info(f"🔄 [Expiry] 상태 expired 처리 완료: {name}")
+                                    else:
+                                        logger.error(f"⚠️ [Expiry] 상태 업데이트 실패: {await update_resp.text()}")
+                            except Exception as e:
+                                logger.error(f"⚠️ [Expiry] 상태 업데이트 예외 ({name}): {e}")
+
         except Exception as e:
-            logger.error(f"⚠️ [Scheduler] 에러 발생: {e}")
-        
+            logger.error(f"⚠️ [Expiry Checker] 전체 에러: {e}")
+
         # 24시간 대기
         await asyncio.sleep(3600 * 24)
 
