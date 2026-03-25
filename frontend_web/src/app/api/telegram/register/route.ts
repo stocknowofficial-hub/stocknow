@@ -25,10 +25,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { chat_id, name, username } = await request.json();
+  const { chat_id, name, username, ref } = await request.json();
   if (!chat_id) {
     return NextResponse.json({ error: "chat_id required" }, { status: 400 });
   }
+
+  // ref = 텔레그램 봇 /start ref_XXXXXXXX 의 XXXXXXXX (referrer 텔레그램 chat_id)
+  const referrerTelegramId = ref ? String(ref) : null;
 
   const db = getDB();
   if (!db) return NextResponse.json({ error: "DB error" }, { status: 500 });
@@ -66,6 +69,51 @@ export async function POST(request: Request) {
       .bind(userId)
       .run();
     isNewTrial = true;
+
+    // 추천인 처리: telegram_id 컬럼 OR telegram_ prefix ID로 조회
+    // (웹 계정에 텔레그램 연동한 경우도 찾기 위해 telegram_id 컬럼 우선 조회)
+    if (referrerTelegramId) {
+      const referrerExists = await db
+        .prepare("SELECT id FROM users WHERE telegram_id = ? OR id = ? LIMIT 1")
+        .bind(referrerTelegramId, `telegram_${referrerTelegramId}`)
+        .first<{ id: string }>();
+      const referrerId = referrerExists?.id ?? `telegram_${referrerTelegramId}`;
+
+      if (referrerExists && referrerId !== userId) {
+        const alreadyReferred = await db
+          .prepare("SELECT id FROM referrals WHERE referrer_id = ? AND referee_id = ?")
+          .bind(referrerId, userId)
+          .first();
+
+        const referrerCount = await db
+          .prepare("SELECT COUNT(*) as cnt FROM referrals WHERE referrer_id = ? AND rewarded = 1")
+          .bind(referrerId)
+          .first<{ cnt: number }>();
+
+        if (!alreadyReferred && (referrerCount?.cnt ?? 0) < 20) {
+          await db
+            .prepare("UPDATE users SET referred_by = ? WHERE id = ?")
+            .bind(referrerId, userId)
+            .run();
+
+          await db
+            .prepare("INSERT INTO referrals (referrer_id, referee_id, rewarded) VALUES (?, ?, 1)")
+            .bind(referrerId, userId)
+            .run();
+
+          // referrer 구독 +7일 연장 (추천인 보상만, referee는 trial 그대로)
+          await db
+            .prepare(
+              `UPDATE subscriptions
+               SET expires_at = COALESCE(datetime(expires_at, '+7 days'), datetime('now', '+7 days')),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = ?`
+            )
+            .bind(referrerId)
+            .run();
+        }
+      }
+    }
   }
 
   const sub = existing ?? { plan: "trial", status: "active", expires_at: null };

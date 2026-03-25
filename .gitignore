@@ -43,3 +43,6 @@ next-env.d.ts
 *.db
 *.sqlite3
 *.sqlite
+
+# Downloaded report PDFs (auto-collected by watcher)
+data/reports/*.pdf

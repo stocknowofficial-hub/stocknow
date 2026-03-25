@@ -1,6 +1,7 @@
 import asyncio
 import ujson
 import time
+import aiohttp
 from datetime import datetime
 from common.config import settings
 from common.redis_client import redis_client
@@ -11,10 +12,64 @@ from watcher.utils.definitions import (
     fetch_kr_program_trend,
     fetch_kr_investor_trend,
     fetch_kr_broker_trend,
+    fetch_kr_foreign_estimate,
     update_telegraph_board,
     setup_telegraph_account
 )
-import os 
+import os
+
+
+async def push_to_dashboard(prog_top_10: list, frgn_top_10: list, vol_top_20: list):
+    """웹 대시보드 D1에 수급 데이터 업로드 (5분마다 호출)"""
+    secret = getattr(settings, 'WHALE_SECRET', '') or os.environ.get('WHALE_SECRET', '')
+    if not secret:
+        return
+
+    def extract(items: list, kind: str) -> list:
+        result = []
+        for s in items:
+            name = s.get('hts_kor_isnm') or s.get('name', '')
+            code = s.get('mksc_shrn_iscd') or s.get('code', '')
+            try:
+                price = int(str(s.get('stck_prpr') or s.get('price', 0)).replace(',', ''))
+            except:
+                price = 0
+            chgrate = str(s.get('prdy_ctrt') or s.get('chgrate', '0')).strip()
+            item: dict = {"name": name, "code": code, "price": price, "chgrate": chgrate}
+            if kind == 'program':
+                item['amount_eok'] = round(s.get('program_net_buy', 0) / 100, 1)
+            elif kind == 'foreign':
+                item['amount_eok'] = round(s.get('foreign_net_buy', 0) / 100, 1)
+            elif kind == 'volume':
+                try:
+                    item['acml_vol'] = int(str(s.get('acml_vol', 0)).replace(',', ''))
+                except:
+                    item['acml_vol'] = 0
+            result.append(item)
+        return result
+
+    payload = {
+        "market": "KR",
+        "program_items": extract(prog_top_10, 'program'),
+        "foreign_items": extract(frgn_top_10, 'foreign'),
+        "volume_items":  extract(vol_top_20, 'volume'),
+    }
+
+    url = f"{settings.CLOUDFLARE_URL}/api/whale-feed"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                headers={"X-Secret-Key": secret},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    print(f"📡 [Dashboard] D1 업데이트 완료 ({len(payload['program_items'])}프로그램 / {len(payload['foreign_items'])}외국인 / {len(payload['volume_items'])}거래량)")
+                else:
+                    print(f"⚠️ [Dashboard] D1 업데이트 실패: HTTP {resp.status}")
+    except Exception as e:
+        print(f"⚠️ [Dashboard] push 실패: {e}")
 
 # ----------------------------------------
 # 📊 Dashboard State
@@ -63,7 +118,7 @@ async def run_whale_watcher_kr(approval_key, access_token):
     """
     🐳 [K-Whale Hunter] 국내 주식 수급 포착 (프로그램 + 외국인)
     """
-    global alert_history, prev_prog_map, prev_frgn_map
+    global alert_history, prev_prog_map, prev_frgn_map, last_dashboard_update
     print(f"🐳 [K-Whale Hunter] 가동 시작 (Delta Mode | General: {MIN_PROGRAM_DELTA_GENERAL//100000000}억, LargeCap: {MIN_PROGRAM_DELTA_LARGE_CAP//100000000}억)")
 
     while True:
@@ -130,14 +185,11 @@ async def run_whale_watcher_kr(approval_key, access_token):
             frgn_map = {}
             if frgn_est_list:
                 for item in frgn_est_list:
-                    # stck_shrn_iscd: 코드
-                    # glob_total_shnu_qty: 매수량
-                    # glob_total_seln_qty: 매도량
                     try:
                         f_code = item['stck_shrn_iscd']
                         buy_qty = int(item.get('glob_total_shnu_qty', 0))
                         sell_qty = int(item.get('glob_total_seln_qty', 0))
-                        net_qty = buy_qty - sell_qty # 순매수 수량
+                        net_qty = buy_qty - sell_qty
                         frgn_map[f_code] = net_qty
                     except: pass
             
@@ -288,32 +340,36 @@ async def run_whale_watcher_kr(approval_key, access_token):
                         amt = p.get('program_net_buy', 0) / 100 # Convert to Eok
                         p['name'] = f"{p['name']} (🤖+{amt:.1f}억)"
 
-                    # B. Foreigner Top 10 (from frgn_map/frgn_est_list)
-                    # Need to reconstruct item with name/rate (frgn_est_list only has code)
-                    # We can only map codes available in 'candidates' or fetch name?
-                    # Getting names for ALL frgn list is expensive. 
-                    # Strategy: Only use 'candidates' for Foreigner Top as well (Active Stocks)
-                    # OR: Use the frgn_est_list but we lack Name/Price/Rate for non-candidates.
-                    # -> Use 'candidates' for now. It covers most active stocks.
+                    # B. Foreigner Top 10 (directly from frgn_est_list — has name/price/ntsl_qty)
                     frgn_list = []
-                    for s in candidates:
-                         code = s.get('mksc_shrn_iscd')
-                         if not code: continue
-                         qty = frgn_map.get(code, 0)
-                         price = 0
-                         try: price = int(str(s.get('stck_prpr', '0')).replace(',', ''))
-                         except: pass
-                         amt_mil = (qty * price) / 1000000
-                         if amt_mil > 0:
-                             s_copy = s.copy()
-                             s_copy['foreign_net_buy'] = amt_mil
-                             frgn_list.append(s_copy)
-                    
-                    frgn_list.sort(key=lambda x: x.get('foreign_net_buy', 0), reverse=True)
+                    for item in frgn_est_list:
+                        try:
+                            net_qty = int(item.get('glob_ntsl_qty', 0))
+                            if net_qty == 0:
+                                continue
+                            f_code = item['stck_shrn_iscd']
+                            name = item.get('hts_kor_isnm') or f_code
+                            try:
+                                price = int(str(item.get('stck_prpr', 0)).replace(',', ''))
+                            except:
+                                price = 0
+                            chgrate = str(item.get('prdy_ctrt', '0')).strip()
+                            amt_mil = (net_qty * price) / 1000000
+                            frgn_list.append({
+                                'name': name,
+                                'code': f_code,
+                                'price': price,
+                                'chgrate': chgrate,
+                                'foreign_net_buy': amt_mil,
+                            })
+                        except:
+                            pass
+                    frgn_list.sort(key=lambda x: abs(x.get('foreign_net_buy', 0)), reverse=True)
                     frgn_top_10 = frgn_list[:10]
                     for f in frgn_top_10:
-                        amt = f.get('foreign_net_buy', 0) / 100
-                        f['name'] = f"{f['hts_kor_isnm']} (👽+{amt:.1f}억)"
+                        amt_eok = f.get('foreign_net_buy', 0) / 100
+                        label = f"👽+{amt_eok:.1f}억" if amt_eok >= 0 else f"👽{amt_eok:.1f}억"
+                        f['name'] = f"{f['name']} ({label})"
 
                     # C. Volume Top 20 (Expanded)
                     # Just take top 20 from c_vol
@@ -324,6 +380,7 @@ async def run_whale_watcher_kr(approval_key, access_token):
                         v_copy['code'] = v.get('mksc_shrn_iscd')
                         v_copy['chgrate'] = v.get('prdy_ctrt')
                         v_copy['price'] = v.get('stck_prpr')
+                        v_copy['acml_vol'] = v.get('acml_vol', 0)
                         vol_top_20.append(v_copy)
 
                     # 2. Construct Display List with Headers
@@ -340,7 +397,10 @@ async def run_whale_watcher_kr(approval_key, access_token):
 
                     # 3. Update Telegraph
                     url = update_telegraph_board(telegraph_config, "🇰🇷 국장 수급 주도주 현황 (Live)", dashboard_list)
-                    
+
+                    # 4. 웹 대시보드 D1 업데이트 (telegraph와 동시)
+                    await push_to_dashboard(prog_top_10, frgn_top_10, vol_top_20)
+
                     if url:
                         # Save Config if Path changed (first run)
                         if not telegraph_config.get("path_saved"):

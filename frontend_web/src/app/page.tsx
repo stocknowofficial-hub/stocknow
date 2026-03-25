@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HeroDashboard } from "@/components/HeroDashboard";
 
 export default function Home() {
   return (
@@ -53,17 +54,40 @@ export default function Home() {
           <Link href="/dashboard" className="px-8 py-4 rounded-2xl bg-white text-black font-bold text-lg hover:scale-[1.02] transition-all shadow-xl shadow-white/5">
             지금 시작하기
           </Link>
-          <button className="px-8 py-4 rounded-2xl bg-white/5 border border-white/10 font-bold text-lg hover:bg-white/10 transition-all backdrop-blur-sm">
+          <Link href="/features" className="px-8 py-4 rounded-2xl bg-white/5 border border-white/10 font-bold text-lg hover:bg-white/10 transition-all backdrop-blur-sm">
             기능 소개
-          </button>
+          </Link>
         </div>
 
         {/* Hero Image Mockup Area */}
         <div className="mt-20 relative px-4 mx-auto max-w-5xl">
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-transparent to-transparent z-10" />
-          <div className="rounded-3xl border border-white/10 overflow-hidden shadow-2xl shadow-purple-500/10 aspect-[16/9] bg-white/5 relative">
-            <div className="absolute inset-0 flex items-center justify-center text-white/5 uppercase tracking-[0.2em] font-black text-4xl -rotate-12 select-none">
-              StockNow Analytics
+          {/* Decorative Background Glows */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-purple-600/5 blur-[120px] rounded-full pointer-events-none" />
+          
+          <div className="relative rounded-3xl border border-white/10 overflow-hidden shadow-[0_0_50px_rgba(168,85,247,0.15)] bg-[#0c0c0e]/80 backdrop-blur-xl">
+            {/* Window Top Bar */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-white/[0.03]">
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-500/40" />
+                  <div className="w-3 h-3 rounded-full bg-amber-500/40" />
+                  <div className="w-3 h-3 rounded-full bg-emerald-500/40" />
+                </div>
+                <div className="ml-4 px-3 py-1 rounded-md bg-white/5 text-[10px] text-gray-500 font-mono tracking-wider">
+                  STK-ANALYTICS-ENGINE-v2.0
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="h-1.5 w-12 rounded-full bg-white/5" />
+                <div className="h-1.5 w-12 rounded-full bg-white/5" />
+              </div>
+            </div>
+            
+            <div className="relative aspect-[16/8] md:aspect-[21/9] overflow-hidden">
+              {/* Grid background */}
+              <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+                style={{ backgroundImage: 'linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+              <HeroDashboard />
             </div>
           </div>
         </div>
@@ -71,16 +95,18 @@ export default function Home() {
 
       {/* Features Grid */}
       <section className="relative z-10 px-6 py-24 mx-auto max-w-7xl">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
           {[
-            { title: "실시간 고래 감지", desc: "주요 거래소의 대량 입출금을 초 단위로 추적합니다.", icon: "⚡" },
-            { title: "AI 수급 분석", desc: "Gemini AI가 수급의 의도와 향후 흐름을 예측합니다.", icon: "🤖" },
-            { title: "텔레그램 즉시 알림", desc: "포착된 기회는 즉시 텔레그램으로 전송됩니다.", icon: "📱" }
+            { title: "실시간 고래 감지", desc: "주요 거래소의 대량 입출금을 초 단위로 추적합니다.", icon: "⚡", color: "from-amber-400 to-orange-500" },
+            { title: "AI 수급 분석", desc: "Gemini AI가 수급의 의도와 향후 흐름을 예측합니다.", icon: "🤖", color: "from-purple-400 to-blue-500" },
+            { title: "텔레그램 즉시 알림", desc: "포착된 기회는 즉시 텔레그램으로 전송됩니다.", icon: "📱", color: "from-blue-400 to-emerald-500" }
           ].map((f, i) => (
-            <div key={i} className="p-8 rounded-3xl bg-white/[0.02] border border-white/10 hover:border-white/20 transition-all">
-              <div className="text-3xl mb-4">{f.icon}</div>
+            <div key={i} className="group p-8 rounded-[2rem] bg-white/[0.02] border border-white/10 hover:border-purple-500/30 transition-all duration-500 hover:bg-white/[0.04]">
+              <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${f.color} flex items-center justify-center text-2xl mb-6 shadow-lg shadow-black/20 group-hover:scale-110 transition-transform`}>
+                {f.icon}
+              </div>
               <h3 className="text-xl font-bold mb-3">{f.title}</h3>
-              <p className="text-gray-500 leading-relaxed">{f.desc}</p>
+              <p className="text-gray-500 leading-relaxed text-sm md:text-base">{f.desc}</p>
             </div>
           ))}
         </div>

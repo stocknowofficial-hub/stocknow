@@ -44,7 +44,7 @@ export default function SignInPage() {
 
           {/* Google Login */}
           <button
-            onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+            onClick={() => signIn("google", { callbackUrl: "/dashboard" }, { prompt: "select_account" })}
             className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white text-[#191919] font-bold rounded-2xl hover:bg-gray-100 transition-all shadow-lg active:scale-[0.98]"
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />

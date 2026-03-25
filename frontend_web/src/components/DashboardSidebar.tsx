@@ -9,19 +9,41 @@ interface DashboardSidebarProps {
     email?: string | null;
     image?: string | null;
   };
+  provider?: string;
+}
+
+function ProviderBadge({ provider, size = 12 }: { provider: string; size?: number }) {
+  if (provider === 'naver') {
+    return (
+      <span style={{ width: size, height: size, fontSize: size * 0.75 }}
+        className="inline-flex items-center justify-center rounded-sm bg-[#03C75A] text-white font-bold leading-none">
+        N
+      </span>
+    );
+  }
+  if (provider === 'kakao') {
+    return (
+      <span style={{ width: size, height: size, fontSize: size * 0.75 }}
+        className="inline-flex items-center justify-center rounded-sm bg-[#FEE500] text-[#3C1E1E] font-bold leading-none">
+        K
+      </span>
+    );
+  }
+  return null;
 }
 
 const navItems = [
   { href: '/dashboard', icon: '📊', label: '대시보드' },
+  { href: '/predictions', icon: '🔮', label: '예측 트래커' },
   { href: '/referrals', icon: '🎁', label: '초대 혜택' },
   { href: '/settings', icon: '⚙️', label: '설정' },
 ];
 
-export function DashboardSidebar({ user }: DashboardSidebarProps) {
+export function DashboardSidebar({ user, provider }: DashboardSidebarProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 border-r border-white/5 bg-white/[0.01] flex flex-col p-6 shrink-0">
+    <aside className="hidden lg:flex w-64 border-r border-white/5 bg-white/[0.01] flex-col p-6 shrink-0">
       <div className="flex items-center gap-2 mb-12">
         <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">
           S
@@ -58,7 +80,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
       </nav>
 
       <div className="mt-auto pt-6 border-t border-white/5">
-        <div className="flex items-center gap-3 px-2">
+        <Link href="/settings" className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors">
           {user.image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -71,9 +93,15 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           )}
           <div>
             <div className="text-sm font-semibold">{user.name || '사용자'}</div>
-            <div className="text-xs text-gray-500 line-clamp-1">{user.email || ''}</div>
+            {provider && (provider === 'naver' || provider === 'kakao') ? (
+              <div className="mt-0.5">
+                <ProviderBadge provider={provider} size={12} />
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500 line-clamp-1">{user.email || ''}</div>
+            )}
           </div>
-        </div>
+        </Link>
       </div>
     </aside>
   );

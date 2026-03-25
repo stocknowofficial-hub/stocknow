@@ -10,6 +10,7 @@ interface UserRow {
   id_type: string | null;
   telegram_id: string | null;
   telegram_name: string | null;
+  mobile: string | null;
   created_at: string | null;
   plan: string | null;
   status: string | null;
@@ -151,6 +152,7 @@ export function AdminDashboard({ initialUsers }: { initialUsers: UserRow[] }) {
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">이름 / 이메일</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">가입</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">텔레그램</th>
+                <th className="text-left px-5 py-3 text-gray-500 font-medium">휴대폰</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">플랜</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">만료일</th>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">가입일</th>
@@ -178,6 +180,10 @@ export function AdminDashboard({ initialUsers }: { initialUsers: UserRow[] }) {
                     ) : (
                       <span className="text-gray-600">미연동</span>
                     )}
+                  </td>
+
+                  <td className="px-5 py-4 text-xs text-gray-400 font-mono">
+                    {user.mobile || <span className="text-gray-600">—</span>}
                   </td>
 
                   {editingId === user.id ? (

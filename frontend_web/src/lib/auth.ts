@@ -17,7 +17,7 @@ function CloudflareGoogleProvider(): OAuthConfig<GoogleProfile> {
     type: "oauth",
     authorization: {
       url: "https://accounts.google.com/o/oauth2/v2/auth",
-      params: { scope: "openid email profile", response_type: "code" },
+      params: { scope: "openid email profile", response_type: "code", prompt: "select_account" },
     },
     token: {
       url: "https://oauth2.googleapis.com/token",
@@ -160,6 +160,7 @@ interface NaverProfile extends Record<string, unknown> {
     nickname?: string;
     email?: string;
     profile_image?: string;
+    mobile?: string;
   };
 }
 
@@ -211,9 +212,10 @@ function CloudflareNaverProvider(): OAuthConfig<NaverProfile> {
     profile(profile) {
       return {
         id: profile.response.id,
-        name: profile.response.name || profile.response.nickname || "네이버 사용자",
+        name: profile.response.nickname || profile.response.name || "네이버 사용자",
         email: profile.response.email || `${profile.response.id}@naver.user`,
         image: profile.response.profile_image || null,
+        mobile: profile.response.mobile || null,
       };
     },
     clientId: process.env.NAVER_CLIENT_ID || "",
@@ -250,12 +252,14 @@ export const authOptions: NextAuthOptions = {
             const db = envDb as import("@cloudflare/workers-types").D1Database;
             console.log("[Auth Callback] Starting UPSERT for ID:", customId);
             
+            const mobile = (user as any).mobile ?? null;
             const userResult = await db.prepare(
-                `INSERT INTO users (id, id_type, id_social, email, name, image)
-                 VALUES (?, ?, ?, ?, ?, ?)
+                `INSERT INTO users (id, id_type, id_social, email, name, image, mobile)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    name  = EXCLUDED.name,
                    image = EXCLUDED.image,
+                   mobile = COALESCE(EXCLUDED.mobile, users.mobile),
                    updated_at = CURRENT_TIMESTAMP`
               ).bind(
                 customId,
@@ -263,7 +267,8 @@ export const authOptions: NextAuthOptions = {
                 account.providerAccountId,
                 user.email ?? null,
                 user.name ?? null,
-                user.image ?? null
+                user.image ?? null,
+                mobile
               ).run();
             
             console.log("[Auth Callback] User UPSERT Success!", userResult.success);

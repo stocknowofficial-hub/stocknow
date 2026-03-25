@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # [Cron] Cloudflare API 인증 시크릿 (worker → Cloudflare)
     CRON_SECRET: str = ""
 
+    # [Whale Feed] 대시보드 수급 데이터 업로드 시크릿
+    WHALE_SECRET: str = ""
+
     # ✅ [Payment Secrets] 시크릿 링크용 비밀키 (유출 주의)
     # 실제 운영 시엔 .env로 빼는 것이 좋습니다.
     PAYMENT_SECRETS: dict = {

@@ -23,7 +23,7 @@ export async function GET() {
 
   const { results } = await db
     .prepare(
-      `SELECT u.id, u.name, u.email, u.id_type, u.telegram_id, u.telegram_name,
+      `SELECT u.id, u.name, u.email, u.id_type, u.telegram_id, u.telegram_name, u.mobile,
               u.created_at,
               s.plan, s.status, s.expires_at
        FROM users u

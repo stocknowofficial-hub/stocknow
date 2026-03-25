@@ -20,6 +20,10 @@
 # production
 /build
 
+# Cloudflare / OpenNext build artifacts
+/.open-next/
+/deploy_staging/
+
 # misc
 .DS_Store
 *.pem

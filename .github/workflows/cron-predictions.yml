@@ -1,0 +1,34 @@
+name: Prediction Cron Jobs
+
+on:
+  schedule:
+    # 2시간마다 가격 업데이트 (UTC 기준, 한국시간 = UTC+9)
+    - cron: '0 */2 * * *'
+    # 매일 자정(UTC) 만료 예측 체크
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 수동 실행 허용
+
+jobs:
+  update-prediction-prices:
+    name: 예측 가격 업데이트
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 */2 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Call update-prediction-prices API
+        run: |
+          curl -s -X GET \
+            "${{ secrets.CLOUDFLARE_URL }}/api/cron/update-prediction-prices" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            | jq .
+
+  check-expired-predictions:
+    name: 만료 예측 체크
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 0 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Call check-predictions API
+        run: |
+          curl -s -X GET \
+            "${{ secrets.CLOUDFLARE_URL }}/api/cron/check-predictions" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            | jq .

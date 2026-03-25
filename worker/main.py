@@ -264,6 +264,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "chat_id": str(chat_id),
             "name": name,
             "username": user.username or "",
+            "ref": referrer_id,  # ref_XXXXXXXX 추천인 chat_id (없으면 None)
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(

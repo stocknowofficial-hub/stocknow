@@ -1,9 +1,13 @@
 import asyncio
+import sys
 import requests
 import ujson
 from bs4 import BeautifulSoup
 from common.redis_client import redis_client
 from common.config import settings
+
+# Docker 환경에서 print가 버퍼링되지 않도록
+sys.stdout.reconfigure(line_buffering=True)
 
 # 트럼프 형님 계정
 TARGET_HANDLE = "realDonaldTrump"

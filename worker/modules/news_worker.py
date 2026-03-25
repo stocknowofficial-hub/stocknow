@@ -8,6 +8,7 @@ from common.config import settings
 from common.logger import setup_logger # ✅ Logger Import
 from worker.modules.ai.gemini_search import GeminiSearch
 from worker.modules.ai.gemini_search_pro import GeminiSearchPro
+from worker.modules.prediction_generator import generate_prediction_from_report, generate_prediction_from_trump
 
 logger = setup_logger("NewsWorker", "logs/worker", "worker.log")
 
@@ -174,7 +175,16 @@ class NewsWorker:
             text = msg_data.get('text', '')
             original_url = msg_data.get('url', '')
             post_time = msg_data.get('time') # ✅ 시간 정보 추출
-            
+
+            # 🔮 예측 카드 생성 (백그라운드)
+            asyncio.create_task(
+                generate_prediction_from_trump(
+                    post_text=text,
+                    post_url=original_url,
+                    post_time=post_time or '',
+                )
+            )
+
             query = text
         # D. 주간 리포트 분석 (REPORT_ANALYSIS)
         # -----------------------------------------------------
@@ -183,10 +193,19 @@ class NewsWorker:
             title = msg_data.get('title')
             text = msg_data.get('text')
             file_path = msg_data.get('file_path') # ✅ File Path Check
-            
+
             logger.info(f"📑 [Report Analysis] {source}: {title}")
-            
+
+            # 🔮 예측 카드 생성 (백그라운드, file_path 있을 때만)
             if file_path:
+                asyncio.create_task(
+                    generate_prediction_from_report(
+                        source=source.lower() if source else 'report',
+                        source_desc=title or '',
+                        source_url=msg_data.get('url', ''),
+                        file_path=file_path,
+                    )
+                )
                 logger.info(f"   ㄴ 📂 File Mode: {file_path}")
                 return await self.gemini_pro.analyze_report_file(source, title, file_path)
             else:

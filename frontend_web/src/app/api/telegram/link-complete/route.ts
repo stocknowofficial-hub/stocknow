@@ -94,11 +94,14 @@ export async function POST(request: Request) {
           .run();
       }
 
-      // 텔레그램 전용 계정 데이터 정리 후 삭제
+      // 텔레그램 전용 계정 데이터를 웹 계정으로 이전 후 삭제
+      // referrals: referee_id / referrer_id 를 웹 user ID로 이전 (추천 기록 보존)
       await db.batch([
+        db.prepare("UPDATE referrals SET referee_id = ? WHERE referee_id = ?").bind(webUserId, telegramUserId),
+        db.prepare("UPDATE referrals SET referrer_id = ? WHERE referrer_id = ?").bind(webUserId, telegramUserId),
+        db.prepare("UPDATE users SET referred_by = ? WHERE referred_by = ?").bind(webUserId, telegramUserId),
         db.prepare("DELETE FROM subscriptions WHERE user_id = ?").bind(telegramUserId),
         db.prepare("DELETE FROM payments WHERE user_id = ?").bind(telegramUserId),
-        db.prepare("DELETE FROM referrals WHERE referrer_id = ? OR referee_id = ?").bind(telegramUserId, telegramUserId),
         db.prepare("DELETE FROM users WHERE id = ?").bind(telegramUserId),
       ]);
 

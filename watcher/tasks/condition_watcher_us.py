@@ -2,6 +2,8 @@ import asyncio
 import ujson
 import time
 import pytz
+import aiohttp
+import os
 from datetime import datetime
 from common.config import settings
 from common.redis_client import redis_client
@@ -10,10 +12,59 @@ from watcher.kis_auth import get_access_token
 # ✅ 공통 함수 임포트
 from watcher.utils.definitions import (
     check_us_market_open,
-    update_telegraph_board, 
+    update_telegraph_board,
     fetch_us_stocks_by_condition,
     fetch_prices_by_codes # ✅ 추가
 )
+
+
+async def push_to_dashboard_us(index_items: list, tech_items: list, sector_items: list, risers: list, fallers: list):
+    """웹 대시보드 D1에 미국장 데이터 업로드 (5분마다 호출)"""
+    secret = getattr(settings, 'WHALE_SECRET', '') or os.environ.get('WHALE_SECRET', '')
+    if not secret:
+        return
+
+    def fmt(item: dict) -> dict:
+        code = item.get('code', '')
+        rate = item.get('rate', 0)
+        return {
+            "name": item.get('name', code),
+            "code": code,
+            "price": item.get('price') or item.get('last', 0),
+            "chgrate": str(rate),
+            "is_header": item.get('is_header', False)
+        }
+    
+    program_list = []
+    if index_items:
+        program_list.append({"name": "📊 주요 지수", "is_header": True, "code": "", "rate": 0})
+        program_list.extend(index_items)
+    if tech_items:
+        program_list.append({"name": "💎 Big 7 Tech", "is_header": True, "code": "", "rate": 0})
+        program_list.extend(tech_items)
+
+    payload = {
+        "market": "US",
+        "program_items": [fmt(x) for x in program_list[:20]],                 # 지수 + Big7 (헤더 포함)
+        "foreign_items":  [fmt(x) for x in sector_items[:15]],                # 섹터 ETF
+        "volume_items":   [fmt(x) for x in (risers[:10] + fallers[:10])],     # 급등 + 급락
+    }
+
+    url = f"{settings.CLOUDFLARE_URL}/api/whale-feed"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                headers={"X-Secret-Key": secret},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    print(f"📡 [US Dashboard] D1 업데이트 완료 (지수{len(payload['program_items'])} / 섹터{len(payload['foreign_items'])} / 급등락{len(payload['volume_items'])})")
+                else:
+                    print(f"⚠️ [US Dashboard] D1 업데이트 실패: HTTP {resp.status}")
+    except Exception as e:
+        print(f"⚠️ [US Dashboard] push 실패: {e}")
 
 # =========================================================
 # 👇 [설정]
@@ -70,13 +121,29 @@ SECTOR_NAME_MAP = {
 alert_history = {}
 telegraph_info = {"access_token": None, "path": None, "url": None}
 last_telegraph_update = 0
-is_premarket_briefing_sent = False
-is_open_briefing_sent = False 
+# [Gap 2] 브리핑 발송 여부는 Redis에 저장 (재시작 후에도 유지)
+# is_premarket_briefing_sent / is_open_briefing_sent → Redis key로 관리
+
+async def is_briefing_sent(ny_date_str: str, kind: str) -> bool:
+    """Redis에서 오늘 브리핑 발송 여부 확인"""
+    try:
+        key = f"us_briefing:{ny_date_str}:{kind}"
+        return (await redis_client.client.exists(key)) > 0
+    except:
+        return False
+
+async def mark_briefing_sent(ny_date_str: str, kind: str):
+    """Redis에 오늘 브리핑 발송 기록 (TTL 28시간)"""
+    try:
+        key = f"us_briefing:{ny_date_str}:{kind}"
+        await redis_client.client.setex(key, 28 * 3600, "1")
+    except:
+        pass
 
 async def run_condition_watcher_us(approval_key, access_token=None):
     """미국 조건팀 Main Loop"""
-    global alert_history, is_premarket_briefing_sent, is_open_briefing_sent, last_telegraph_update
-    
+    global alert_history, last_telegraph_update
+
     current_token = access_token
     print(f"🇺🇸 [해외 조건팀] Giant Watcher 가동 (Big7/Indices/Sectors)")
 
@@ -85,14 +152,12 @@ async def run_condition_watcher_us(approval_key, access_token=None):
             ny_tz = pytz.timezone('America/New_York')
             now_ny = datetime.now(ny_tz)
             current_time_ny = now_ny.strftime("%H%M")
-            
-            # 0. 운영 시간 체크 (뉴욕 04:00 ~ 17:00) 
-            # (기존 20:00은 애프터마켓까지 포함인데, 한국장 시작과 겹침)
+            ny_date_str = now_ny.strftime("%Y%m%d")  # Gap 2: Redis key용 날짜
+
+            # 0. 운영 시간 체크 (뉴욕 04:00 ~ 17:00)
             ny_hour = now_ny.hour
             if not (4 <= ny_hour < 17):
                 alert_history.clear()
-                is_premarket_briefing_sent = False
-                is_open_briefing_sent = False # 초기화
                 telegraph_info["path"] = None
                 print(f"💤 [US Market] 정규장 마감 ( ~ 17:00 NYT). 1시간 대기 ({now_ny.strftime('%H:%M')})...")
                 await asyncio.sleep(3600)
@@ -241,25 +306,26 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                     display_list.extend(fallers[:20]) # Top 20
 
                 page_url = await loop.run_in_executor(
-                    None, 
-                    update_telegraph_board, 
-                    telegraph_info, 
-                    f"🇺🇸 {now_ny.month}/{now_ny.day} US Market Live", 
-                    display_list # Pass structured list
+                    None,
+                    update_telegraph_board,
+                    telegraph_info,
+                    f"🇺🇸 {now_ny.month}/{now_ny.day} US Market Live",
+                    display_list
                 )
                 last_telegraph_update = time.time()
-                
-                # 4-1. 프리마켓 브리핑 (08:40 NYT) - 시간 변경
-                if not is_premarket_briefing_sent and current_time_ny >= "0840" and current_time_ny < "0910":
-                    if page_url and collected_data: # 데이터 있을 때만 브리핑
-                        # 브리핑용 요약은 3% 이상인 것들만 대상으로 함
+
+                # [Gap 3] 웹 대시보드 D1 업데이트
+                await push_to_dashboard_us(index_items, tech_items, sector_only_items, risers, fallers)
+
+                # 4-1. 프리마켓 브리핑 (08:40 NYT)
+                if not await is_briefing_sent(ny_date_str, "premarket") and "0840" <= current_time_ny < "0910":
+                    if page_url and collected_data:
                         rising_top = sorted([x for x in collected_data if x['rate'] >= 3.0], key=lambda x: x['rate'], reverse=True)[:3]
                         falling_top = sorted([x for x in collected_data if x['rate'] <= -3.0], key=lambda x: x['rate'])[:3]
-                        
+
                         summary_text = "📈 [급등 (3% 이상)]\n"
                         for s in rising_top: summary_text += f"• {s['name']}({s['code']}) ({s['rate']}%)\n"
                         if not rising_top: summary_text += "• 특이사항 없음\n"
-
                         summary_text += "\n📉 [급락 (-3% 이하)]\n"
                         for s in falling_top: summary_text += f"• {s['name']}({s['code']}) ({s['rate']}%)\n"
                         if not falling_top: summary_text += "• 특이사항 없음\n"
@@ -270,22 +336,21 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                             "summary": f"오늘 밤 장전 주요 움직임입니다 (±3% 이상 / 시총 $10B 이상).\n\n{summary_text}\n...전체 현황판(ETF 포함)은 아래 링크 클릭",
                             "sentiment": "Neutral",
                             "link": page_url,
-                            "should_pin": True # 📌 고정
+                            "should_pin": True
                         }
                         await redis_client.publish("news_alert", ujson.dumps(payload))
-                        is_premarket_briefing_sent = True
+                        await mark_briefing_sent(ny_date_str, "premarket")  # [Gap 2] Redis 기록
                         print("📢 [US] 프리마켓 브리핑 전송 완료")
-                
-                # 4-2. 장 초반 브리핑 (09:35 NYT) - 신규 추가
-                if not is_open_briefing_sent and current_time_ny >= "0935":
-                    if page_url and collected_data: # 데이터 있을 때만 브리핑
+
+                # 4-2. 장 초반 브리핑 (09:35 NYT)
+                if not await is_briefing_sent(ny_date_str, "open") and current_time_ny >= "0935":
+                    if page_url and collected_data:
                         rising_top = sorted([x for x in collected_data if x['rate'] >= 3.0], key=lambda x: x['rate'], reverse=True)[:3]
                         falling_top = sorted([x for x in collected_data if x['rate'] <= -3.0], key=lambda x: x['rate'])[:3]
-                        
+
                         summary_text = "📈 [급등 (3% 이상)]\n"
                         for s in rising_top: summary_text += f"• {s['name']}({s['code']}) ({s['rate']}%)\n"
                         if not rising_top: summary_text += "• 특이사항 없음\n"
-
                         summary_text += "\n📉 [급락 (-3% 이하)]\n"
                         for s in falling_top: summary_text += f"• {s['name']}({s['code']}) ({s['rate']}%)\n"
                         if not falling_top: summary_text += "• 특이사항 없음\n"
@@ -296,10 +361,10 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                             "summary": f"장 초반 수급 집중 종목입니다 (±3% 이상 / 시총 $10B 이상).\n\n{summary_text}\n...전체 현황판(ETF 포함)은 아래 링크 클릭",
                             "sentiment": "Neutral",
                             "link": page_url,
-                            "should_pin": True # 📌 고정 (최신으로 덮어씀)
+                            "should_pin": True
                         }
                         await redis_client.publish("news_alert", ujson.dumps(payload))
-                        is_open_briefing_sent = True
+                        await mark_briefing_sent(ny_date_str, "open")  # [Gap 2] Redis 기록
                         print("📢 [US] 장 초반 브리핑 전송 완료")
 
             # 5. AI 저격 (본장 시작 후: 09:41 NYT)

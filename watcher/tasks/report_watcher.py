@@ -94,103 +94,101 @@ async def check_blackrock():
     except Exception as e:
         print(f"❌ [BlackRock] Error: {e}")
 
-async def check_kiwoom():
-    """Kiwoom (Via Naver Finance) - No Selenium"""
-    try:
-        # Broker 39 = Kiwoom, Keyword = "Kiwoom Weekly"
-        target_url = "https://finance.naver.com/research/invest_list.naver?searchType=keyword&keyword=kiwoom+Weekly&brokerCode=39"
-        print(f"🔎 [Kiwoom] Checking via Naver Finance (Filtered: 'Kiwoom Weekly')...")
-        
-        loop = asyncio.get_running_loop()
-        resp = await loop.run_in_executor(None, lambda: requests.get(target_url, headers=headers, timeout=10))
-        
-        soup = BeautifulSoup(resp.content.decode('euc-kr', 'replace'), 'html.parser')
-        
-        # Find Request List Table
-        # Structure: div.box_type_m table.type_1 tr
-        rows = soup.select("table.type_1 tr")
-        
-        target_row = None
-        for row in rows:
-            tds = row.find_all('td')
-            if len(tds) < 3: continue 
-            
-            title_link = row.find('a', href=True)
-            if not title_link: continue
-            
-            title_text = title_link.text.strip()
-            # Date is in 3rd last column? Or verify specific column for date
-            # Naver Invest List: Title | Writer | File | Date | Views
-            date_text = tds[4].text.strip() if len(tds) > 4 else datetime.now().strftime("%y.%m.%d")
+async def check_weekly_reports():
+    """네이버 금융 - 'weekly' 키워드로 전 증권사 주간 리포트 수집"""
+    SEARCH_KEYWORDS = ["weekly", "주간전략"]
 
-            print(f"   🔎 Checking Candidate: {title_text} ({date_text})")
-            
-            # Fetch Detail Page to check for PDF
-            detail_url = "https://finance.naver.com/research/" + title_link['href']
-            detail_resp = await loop.run_in_executor(None, lambda: requests.get(detail_url, headers=headers))
-            detail_soup = BeautifulSoup(detail_resp.content.decode('euc-kr', 'replace'), 'html.parser')
-            
-            # Find PDF Link
-            final_pdf_url = None
-            for a in detail_soup.find_all('a', href=True):
-                if a['href'].lower().endswith('.pdf'):
-                    final_pdf_url = a['href']
-                    break
-            
-            if not final_pdf_url:
-                print(f"   ⚠️ No PDF for '{title_text}'. Finding next...")
-                continue # Try next row
-            
-            # ✅ Success: Found a valid report with PDF
-            target_row = {
-                "title": title_text,
-                "url": detail_url,
-                "date": date_text,
-                "pdf_url": final_pdf_url
+    loop = asyncio.get_running_loop()
+    collected = []  # { title, broker, url, date, pdf_url }
+
+    for keyword in SEARCH_KEYWORDS:
+        try:
+            target_url = f"https://finance.naver.com/research/invest_list.naver?searchType=keyword&keyword={keyword}"
+            print(f"🔎 [WeeklyReport] Searching keyword='{keyword}'...")
+
+            resp = await loop.run_in_executor(None, lambda u=target_url: requests.get(u, headers=headers, timeout=10))
+            soup = BeautifulSoup(resp.content.decode('euc-kr', 'replace'), 'html.parser')
+            rows = soup.select("table.type_1 tr")
+
+            for row in rows:
+                tds = row.find_all('td')
+                if len(tds) < 5:
+                    continue
+
+                title_link = row.find('a', href=True)
+                if not title_link:
+                    continue
+
+                title_text = title_link.text.strip()
+                broker_text = tds[1].text.strip() if len(tds) > 1 else ""
+                date_text = tds[3].text.strip() if len(tds) > 3 else ""
+
+                # 이미 수집한 제목은 중복 스킵
+                if any(c['title'] == title_text for c in collected):
+                    continue
+
+                detail_url = "https://finance.naver.com/research/" + title_link['href']
+                detail_resp = await loop.run_in_executor(None, lambda u=detail_url: requests.get(u, headers=headers, timeout=10))
+                detail_soup = BeautifulSoup(detail_resp.content.decode('euc-kr', 'replace'), 'html.parser')
+
+                final_pdf_url = None
+                for a in detail_soup.find_all('a', href=True):
+                    if a['href'].lower().endswith('.pdf'):
+                        final_pdf_url = a['href']
+                        break
+
+                if not final_pdf_url:
+                    continue
+
+                collected.append({
+                    "title": title_text,
+                    "broker": broker_text,
+                    "url": detail_url,
+                    "date": date_text,
+                    "pdf_url": final_pdf_url,
+                })
+                print(f"   📋 Found: [{broker_text}] {title_text} ({date_text})")
+
+        except Exception as e:
+            print(f"❌ [WeeklyReport] keyword='{keyword}' 오류: {e}")
+
+    print(f"📊 [WeeklyReport] 총 {len(collected)}개 리포트 발견")
+
+    # 각 리포트 다운로드 + Redis 발행 (미처리된 것만)
+    for item in collected:
+        try:
+            if is_url_processed(item['pdf_url']):
+                print(f"   💨 Skip (이미 처리됨): {item['title']}")
+                continue
+
+            print(f"📥 Downloading: [{item['broker']}] {item['title']}")
+            pdf_resp = await loop.run_in_executor(None, lambda u=item['pdf_url']: requests.get(u, headers=headers, timeout=15))
+
+            broker_slug = item['broker'].replace(' ', '_').replace('증권', '').lower()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            saved_path = os.path.join(DOWNLOAD_DIR, f"{broker_slug}_{timestamp}.pdf")
+
+            with open(saved_path, "wb") as f:
+                f.write(pdf_resp.content)
+
+            print(f"💾 Saved: {saved_path}")
+
+            payload = {
+                "type": "REPORT_ANALYSIS",
+                "source": item['broker'],
+                "title": item['title'],
+                "file_path": saved_path,
+                "url": item['pdf_url'],
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
-            break # Stop searching
-            
-        if not target_row:
-            print("⚠️ [Kiwoom] No valid PDF reports found (Checked top list).")
-            return
+            await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
+            print(f"🚀 Sent to Redis: {item['title']}")
 
-        print(f"   🔗 PDF URL Found: {target_row['pdf_url']}")
-        
-        if is_url_processed(target_row['pdf_url']):
-            print(f"   💨 [Kiwoom] Skip (Already Processed): {target_row['title']}")
-            return
+            # 요청 간 짧은 딜레이 (서버 부하 방지)
+            await asyncio.sleep(1)
 
-        print(f"📥 [Kiwoom] Downloading: {target_row['title']}")
-        
-        # Download PDF
-        pdf_resp = await loop.run_in_executor(None, lambda: requests.get(target_row['pdf_url'], headers=headers))
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-        saved_path = os.path.join(DOWNLOAD_DIR, f"kiwoom_{timestamp}.pdf")
-        
-        with open(saved_path, "wb") as f:
-            f.write(pdf_resp.content)
-            
-        print(f"💾 [Kiwoom] Saved: {saved_path}")
-        
-        # Publish
-        payload = {
-            "type": "REPORT_ANALYSIS",
-            "source": "Kiwoom",
-            "title": target_row['title'], 
-            "file_path": saved_path, 
-            # ✅ Valid URL for Telegram Link
-            "url": target_row['pdf_url'], 
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
-        print(f"🚀 [Kiwoom] Sent to Redis!")
-
-    except Exception as e:
-        print(f"❌ [Kiwoom] Error: {e}")
-
-    except Exception as e:
-        print(f"❌ [Kiwoom] Error: {e}")
+        except Exception as e:
+            print(f"❌ [WeeklyReport] 다운로드 오류 [{item['title']}]: {e}")
 
 def cleanup_old_reports(days=30):
     """Delete report files older than 'days'."""
@@ -217,32 +215,22 @@ async def run_report_watcher():
     # 🚀 Run immediately on startup (Check for missed reports)
     print("🚀 [Startup] Running initial check...")
     await check_blackrock()
-    await check_kiwoom()
-    
+    await check_weekly_reports()
+
     while True:
         try:
-            # 1. Korea Time (KST) for Kiwoom
             now_kr = datetime.now(pytz.timezone('Asia/Seoul'))
-            run_kiwoom = False
-            # Mon 08-18 (Hourly) OR Daily around 9 AM
-            if (now_kr.weekday() == 0 and 8 <= now_kr.hour <= 18) or (now_kr.hour == 9):
-                run_kiwoom = True
-
-            # 2. New York Time (NYT) for BlackRock
             now_ny = datetime.now(pytz.timezone('America/New_York'))
-            run_blackrock = False
-            # Mon 08-18 NY Time (Hourly) OR Daily around 9 AM NY Time
-            if (now_ny.weekday() == 0 and 8 <= now_ny.hour <= 18) or (now_ny.hour == 9):
-                run_blackrock = True
-            
-            # Execute if flags are set
-            if run_blackrock:
+
+            # BlackRock: 월요일 NY시간 08-18시 매시간
+            if now_ny.weekday() == 0 and 8 <= now_ny.hour <= 18:
                 await check_blackrock()
-                
-            if run_kiwoom:
-                await check_kiwoom()
-            
-            await asyncio.sleep(3600) 
+
+            # 국내 weekly 리포트: 평일 09-18시 매시간 (주로 월~금 오전 업로드)
+            if now_kr.weekday() < 5 and 9 <= now_kr.hour <= 18:
+                await check_weekly_reports()
+
+            await asyncio.sleep(3600)
 
         except Exception as e:
             print(f"❌ [Report Watcher] Loop Error: {e}")
