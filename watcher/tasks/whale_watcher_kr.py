@@ -37,9 +37,9 @@ async def push_to_dashboard(prog_top_10: list, frgn_top_10: list, vol_top_20: li
             chgrate = str(s.get('prdy_ctrt') or s.get('chgrate', '0')).strip()
             item: dict = {"name": name, "code": code, "price": price, "chgrate": chgrate}
             if kind == 'program':
-                item['amount_eok'] = round(s.get('program_net_buy', 0) / 100, 1)
+                item['amount_eok'] = round(s.get('program_net_buy', 0) / 100_000_000, 1)
             elif kind == 'foreign':
-                item['amount_eok'] = round(s.get('foreign_net_buy', 0) / 100, 1)
+                item['amount_eok'] = round(s.get('foreign_net_buy', 0) / 100_000_000, 1)
             elif kind == 'volume':
                 try:
                     item['acml_vol'] = int(str(s.get('acml_vol', 0)).replace(',', ''))
@@ -337,7 +337,7 @@ async def run_whale_watcher_kr(approval_key, access_token):
                     prog_top_10 = prog_list[:10]
                     # Decorate Names with Amount
                     for p in prog_top_10:
-                        amt = p.get('program_net_buy', 0) / 100 # Convert to Eok
+                        amt = p.get('program_net_buy', 0) / 100_000_000 # Convert to Eok
                         p['name'] = f"{p['name']} (🤖+{amt:.1f}억)"
 
                     # B. Foreigner Top 10 (directly from frgn_est_list — has name/price/ntsl_qty)

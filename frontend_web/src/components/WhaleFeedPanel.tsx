@@ -31,21 +31,22 @@ interface WhaleFeedPanelProps {
 }
 
 const KR_TABS: TabConfig[] = [
-  { key: 'program', label: '🤖 프로그램' },
+  { key: 'volume', label: '📈 거래량' },
   { key: 'foreign', label: '👽 외국인' },
-  { key: 'volume',  label: '📈 거래량' },
+  { key: 'program', label: '🤖 프로그램' },
 ];
 
 const US_TABS: TabConfig[] = [
+  { key: 'volume',  label: '📊 거래량 Top10' },
   { key: 'program', label: '📊 지수/Big7' },
   { key: 'foreign', label: '🌍 섹터' },
-  { key: 'volume',  label: '🔥 급등락' },
 ];
 
 export { KR_TABS, US_TABS };
 
 export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMessage }: WhaleFeedPanelProps) {
   const [tab, setTab] = useState<'program' | 'foreign' | 'volume'>(tabs[0].key);
+  const [showAll, setShowAll] = useState(false);
 
   if (!sections) {
     return (
@@ -65,12 +66,11 @@ export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMess
         {tabs.map(({ key, label }) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              tab === key
-                ? 'bg-white/10 text-white'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
+            onClick={() => { setTab(key); setShowAll(false); }}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === key
+              ? 'bg-white/10 text-white'
+              : 'text-gray-500 hover:text-gray-300'
+              }`}
           >
             {label}
           </button>
@@ -80,8 +80,9 @@ export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMess
       {/* 종목 리스트 */}
       <div className="space-y-1.5 cursor-default">
         {(() => {
+          const limit = tab === 'volume' ? (showAll ? 20 : 10) : 20;
           let rank = 0;
-          return items.slice(0, 20).map((item, i) => {
+          return items.slice(0, limit).map((item, i) => {
             if (item.is_header) {
               rank = 0; // reset rank for the new section
               return (
@@ -122,6 +123,16 @@ export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMess
           });
         })()}
       </div>
+
+      {/* 더보기 버튼 — 거래량 탭에서 10개 이상일 때만 */}
+      {tab === 'volume' && items.length > 10 && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          className="w-full mt-3 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-300 bg-white/[0.03] hover:bg-white/[0.06] transition-all"
+        >
+          {showAll ? '▲ 접기' : `▼ 더보기`}
+        </button>
+      )}
 
     </div>
   );

@@ -10,6 +10,7 @@ export interface PlanConfig {
   plan: string;       // subscriptions.plan 값
   label: string;      // UI 표시 라벨
   priceLabel: string; // UI 가격 표시
+  originalPrice?: number; // 정가 (옵션, 할인 표시용)
   badge?: string;     // 할인 뱃지 (옵션)
   description: string;
 }
@@ -30,6 +31,7 @@ export const PLANS: Record<string, PlanConfig> = {
     id: "annual",
     name: "Stock Now Standard (1년)",
     price: 36000,
+    originalPrice: 70800,
     months: 12,
     plan: "standard",
     label: "연간",

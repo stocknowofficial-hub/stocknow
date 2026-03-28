@@ -14,11 +14,12 @@ from watcher.utils.definitions import (
     check_us_market_open,
     update_telegraph_board,
     fetch_us_stocks_by_condition,
-    fetch_prices_by_codes # ✅ 추가
+    fetch_prices_by_codes,
+    fetch_overseas_volume_rank,
 )
 
 
-async def push_to_dashboard_us(index_items: list, tech_items: list, sector_items: list, risers: list, fallers: list):
+async def push_to_dashboard_us(index_items: list, tech_items: list, sector_items: list, vol_rank: list):
     """웹 대시보드 D1에 미국장 데이터 업로드 (5분마다 호출)"""
     secret = getattr(settings, 'WHALE_SECRET', '') or os.environ.get('WHALE_SECRET', '')
     if not secret:
@@ -32,9 +33,10 @@ async def push_to_dashboard_us(index_items: list, tech_items: list, sector_items
             "code": code,
             "price": item.get('price') or item.get('last', 0),
             "chgrate": str(rate),
+            "acml_vol": item.get('tvol') or item.get('vol'),
             "is_header": item.get('is_header', False)
         }
-    
+
     program_list = []
     if index_items:
         program_list.append({"name": "📊 주요 지수", "is_header": True, "code": "", "rate": 0})
@@ -45,9 +47,9 @@ async def push_to_dashboard_us(index_items: list, tech_items: list, sector_items
 
     payload = {
         "market": "US",
-        "program_items": [fmt(x) for x in program_list[:20]],                 # 지수 + Big7 (헤더 포함)
-        "foreign_items":  [fmt(x) for x in sector_items[:15]],                # 섹터 ETF
-        "volume_items":   [fmt(x) for x in (risers[:10] + fallers[:10])],     # 급등 + 급락
+        "program_items": [fmt(x) for x in program_list[:20]],   # 지수 + Big7 (헤더 포함)
+        "foreign_items":  [fmt(x) for x in sector_items[:15]],  # 섹터 ETF
+        "volume_items":   [fmt(x) for x in vol_rank[:10]],      # 거래량 상위 Top10
     }
 
     url = f"{settings.CLOUDFLARE_URL}/api/whale-feed"
@@ -314,8 +316,29 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                 )
                 last_telegraph_update = time.time()
 
+                # [Gap 3] 거래량 상위 Top10 수집 (NAS + NYS 합산)
+                vol_rank_raw = []
+                for excd in ["NAS", "NYS"]:
+                    ranks = await loop.run_in_executor(None, fetch_overseas_volume_rank, current_token, excd)
+                    if ranks:
+                        vol_rank_raw.extend(ranks[:10])
+                # tvol 기준 중복 제거 후 정렬
+                seen = set()
+                vol_rank = []
+                for item in sorted(vol_rank_raw, key=lambda x: int(x.get('tvol') or x.get('vol') or 0), reverse=True):
+                    code = item.get('symb') or item.get('code', '')
+                    if code and code not in seen:
+                        seen.add(code)
+                        vol_rank.append({
+                            "code": code,
+                            "name": item.get('nam') or item.get('name') or item.get('ename') or code,
+                            "price": item.get('price') or item.get('last') or 0,
+                            "rate": float(item.get('rate') or item.get('diff') or 0),
+                            "tvol": int(item.get('tvol') or item.get('vol') or 0),
+                        })
+
                 # [Gap 3] 웹 대시보드 D1 업데이트
-                await push_to_dashboard_us(index_items, tech_items, sector_only_items, risers, fallers)
+                await push_to_dashboard_us(index_items, tech_items, sector_only_items, vol_rank)
 
                 # 4-1. 프리마켓 브리핑 (08:40 NYT)
                 if not await is_briefing_sent(ny_date_str, "premarket") and "0840" <= current_time_ny < "0910":

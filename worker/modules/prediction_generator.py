@@ -2,7 +2,7 @@ import asyncio
 import json
 import aiohttp
 import requests as req_sync
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from google import genai
 from google.genai import types
 from common.config import settings
@@ -55,6 +55,18 @@ JSON만 출력 (설명 없이, 코드블록 없이):
     "근거 2: 구체적 수치나 사실 포함",
     "근거 3: 구체적 수치나 사실 포함"
   ],
+  "related_stocks": [
+    {{"name": "종목명 또는 ETF명", "code": "한국 종목은 6자리 코드(예: 005930), 미국 종목은 티커(예: NVDA)", "role": "매수 / 매도 / 헤지 중 하나", "reason": "왜 이 액션인지 한 줄"}},
+    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}},
+    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}}
+  ],
+  "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
+  "action_reason": "액션 추천 이유 한 줄 (예: '단기 조정 가능성 낮고 상승 모멘텀 유효')",
+  "trade_setup": {{
+    "entry": "진입 조건 (예: '이번 주 내 분할 매수', '5% 추가 하락 시 진입', '현재가 근처에서 즉시')",
+    "stop_loss": "손절 기준 (예: '-5% 이탈 시 손절', '전저점 하회 시')",
+    "target": "목표 수익 (예: '+8~10% 목표', '52주 고점 재도전')"
+  }},
   "timeframe": 7,
   "confidence": "high 또는 medium 또는 low"
 }}
@@ -99,6 +111,18 @@ JSON만 출력 (설명 없이, 코드블록 없이):
     "영향받는 업종/자산 분석",
     "단기 시장 반응 예상"
   ],
+  "related_stocks": [
+    {{"name": "종목명 또는 ETF명", "code": "한국 종목은 6자리 코드(예: 005930), 미국 종목은 티커(예: NVDA)", "role": "매수 / 매도 / 헤지 중 하나", "reason": "왜 이 액션인지 한 줄"}},
+    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}},
+    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}}
+  ],
+  "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
+  "action_reason": "액션 추천 이유 한 줄",
+  "trade_setup": {{
+    "entry": "진입 조건 (예: '이번 주 내 분할 매수', '현재가 근처에서 즉시')",
+    "stop_loss": "손절 기준 (예: '-5% 이탈 시 손절')",
+    "target": "목표 수익 (예: '+8~10% 목표')"
+  }},
   "timeframe": 7,
   "confidence": "high 또는 medium 또는 low"
 }}
@@ -156,7 +180,7 @@ def extract_pdf_text(file_path: str, max_chars: int = 4000) -> str:
 def _call_gemini_sync(client, prompt: str) -> dict | None:
     """Gemini API 동기 호출 → JSON 파싱"""
     response = client.models.generate_content(
-        model='gemini-2.0-flash',
+        model='gemini-2.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -268,6 +292,34 @@ async def generate_prediction_from_report(source: str, source_desc: str, source_
     await _post_prediction(card, source, source_desc, source_url)
 
 
+def _format_et(utc_iso: str | None) -> str:
+    """UTC ISO 문자열 → 미국 동부시간(ET) 포맷. 예: 2026-03-27 EDT 19:20"""
+    if not utc_iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(utc_iso.replace("Z", "+00:00"))
+        dt = dt.replace(tzinfo=timezone.utc)
+        # DST 적용: 3월 두 번째 일요일 ~ 11월 첫 번째 일요일 = EDT(UTC-4), 나머지 = EST(UTC-5)
+        year = dt.year
+        # 3월 두 번째 일요일 계산
+        mar1 = datetime(year, 3, 1, tzinfo=timezone.utc)
+        dst_start = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7)
+        dst_start = dst_start.replace(hour=7)  # 2:00 AM ET = 07:00 UTC
+        # 11월 첫 번째 일요일 계산
+        nov1 = datetime(year, 11, 1, tzinfo=timezone.utc)
+        dst_end = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
+        dst_end = dst_end.replace(hour=6)  # 2:00 AM ET = 06:00 UTC
+        if dst_start <= dt < dst_end:
+            et = dt + timedelta(hours=-4)
+            label = "EDT"
+        else:
+            et = dt + timedelta(hours=-5)
+            label = "EST"
+        return f"{et.strftime('%Y-%m-%d')} {label} {et.strftime('%H:%M')}"
+    except Exception:
+        return utc_iso[:16]
+
+
 async def generate_prediction_from_trump(post_text: str, post_url: str, post_time: str):
     """
     트럼프 Truth Social 게시글 → Gemini 분석 → 예측 카드 생성 → D1 저장
@@ -298,5 +350,5 @@ async def generate_prediction_from_trump(post_text: str, post_url: str, post_tim
 
     print(f"📋 [PredGen] 트럼프 예측 생성됨: {card.get('prediction')}")
 
-    source_desc = f"Trump Truth Social ({post_time[:10] if post_time else ''})"
+    source_desc = f"Trump Truth Social ({_format_et(post_time)})"
     await _post_prediction(card, "trump", source_desc, post_url)

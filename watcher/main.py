@@ -17,6 +17,7 @@ from watcher.tasks.trump_watcher import run_trump_watcher
 from watcher.tasks.report_watcher import run_report_watcher # ✅ New
 from watcher.tasks.whale_watcher_us import run_whale_watcher_us # 🐳 Whale Hunter
 from watcher.tasks.whale_watcher_kr import run_whale_watcher_kr # 🐳 K-Whale Hunter
+from watcher.tasks.prediction_price_updater import run_prediction_price_updater # 💹 Price Updater
 from common.logger import setup_logger # ✅ Logger Import
 
 logger = setup_logger("Watcher", "logs/watcher", "watcher.log")
@@ -107,6 +108,9 @@ async def main():
         # 🐳 [K-Whale Hunter] 국내 수급 (Program + Foreigner)
         run_whale_watcher_kr(approval_key, access_token),
         
+        # 💹 예측 가격 업데이트 (2시간 주기)
+        run_prediction_price_updater(),
+
         # 🔄 스케줄러
         run_scheduled_restarter()
     )

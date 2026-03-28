@@ -5,10 +5,12 @@ export async function POST(request: Request) {
   try {
     const { username, password } = await request.json();
 
-    if (
-      username !== process.env.ADMIN_USERNAME ||
-      password !== process.env.ADMIN_PASSWORD
-    ) {
+    const adminUser = process.env.ADMIN_USERNAME;
+    const adminPass = process.env.ADMIN_PASSWORD;
+    if (!adminUser || !adminPass) {
+      return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
+    }
+    if (username !== adminUser || password !== adminPass) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 

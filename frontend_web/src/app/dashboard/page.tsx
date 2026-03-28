@@ -15,10 +15,13 @@ function formatKST(utcString: string | null) {
   try {
     const d = new Date(utcString + 'Z');
     d.setHours(d.getHours() + 9);
+    const YY = String(d.getUTCFullYear()).slice(2);
+    const MM = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const DD = String(d.getUTCDate()).padStart(2, '0');
     const hh = String(d.getUTCHours()).padStart(2, '0');
     const mm = String(d.getUTCMinutes()).padStart(2, '0');
     const ss = String(d.getUTCSeconds()).padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
+    return `${YY}/${MM}/${DD} ${hh}:${mm}:${ss}`;
   } catch {
     return null;
   }
@@ -38,7 +41,13 @@ interface ReferralCount {
   count: number;
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ upgrade?: string }>;
+}) {
+  const params = await searchParams;
+  const showUpgradeBanner = params.upgrade === "1";
   const session = await getServerSession(authOptions);
 
   if (!session?.user) redirect("/auth/signin");
@@ -162,6 +171,16 @@ export default async function DashboardPage() {
             <PaymentBanner />
           </Suspense>
 
+          {showUpgradeBanner && (
+            <div className="mx-4 mt-4 lg:mx-12 max-w-4xl lg:mx-auto rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-500/10 to-blue-500/10 px-5 py-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-purple-300">🔒 프리미엄 전용 페이지입니다</p>
+                <p className="text-xs text-gray-400 mt-0.5">컨센서스·트럼프 임팩트 페이지는 유료 구독 후 이용하실 수 있습니다.</p>
+              </div>
+              <PremiumUpgradeButton />
+            </div>
+          )}
+
           <div className="px-4 pt-6 pb-28 lg:px-12 lg:pt-10 lg:pb-12 max-w-4xl mx-auto">
             {/* Header */}
             <header className="mb-6 flex items-start justify-between gap-3">
@@ -227,54 +246,65 @@ export default async function DashboardPage() {
                 </div>
               </div>
 
-              {/* KR Live Feed */}
-              <div className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-base font-bold">🇰🇷 국내 수급 현황</h3>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-[10px] text-gray-600">프로그램·외국인·거래량 상위 종목 (5분 갱신)</p>
-                      {whaleUpdatedAt && (
-                        <span className="text-[9px] text-gray-400 font-medium bg-white/[0.03] px-1.5 py-0.5 rounded border border-white/5 whitespace-nowrap">
-                          🕒 최종 업데이트: {formatKST(whaleUpdatedAt)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-500">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    LIVE
-                  </span>
-                </div>
-                <WhaleFeedPanel sections={whaleSections} updated_at={whaleUpdatedAt} tabs={KR_TABS} />
-              </div>
+              {/* US가 더 최근에 업데이트됐으면 위에 표시 */}
+              {(() => {
+                const usIsNewer = whaleUsUpdatedAt && whaleUpdatedAt
+                  ? whaleUsUpdatedAt > whaleUpdatedAt
+                  : !!whaleUsUpdatedAt;
 
-              {/* US Live Feed */}
-              <div className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-base font-bold">🇺🇸 미국 시장 현황</h3>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-[10px] text-gray-600">주요 지수·섹터·급등락 종목 (5분 갱신)</p>
-                      {whaleUsUpdatedAt && (
-                        <span className="text-[9px] text-gray-400 font-medium bg-white/[0.03] px-1.5 py-0.5 rounded border border-white/5 whitespace-nowrap">
-                          🕒 최종 업데이트: {formatKST(whaleUsUpdatedAt)}
-                        </span>
-                      )}
+                const krPanel = (
+                  <div className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-base font-bold">🇰🇷 국내 수급 현황</h3>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-[10px] text-gray-600">프로그램·외국인·거래량 상위 종목 (5분 갱신)</p>
+                          {whaleUpdatedAt && (
+                            <span className="text-[9px] text-gray-400 font-medium bg-white/[0.03] px-1.5 py-0.5 rounded border border-white/5 whitespace-nowrap">
+                              🕒 최종 업데이트: {formatKST(whaleUpdatedAt)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="flex items-center gap-1 text-[10px] text-emerald-500">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        LIVE
+                      </span>
                     </div>
+                    <WhaleFeedPanel sections={whaleSections} updated_at={whaleUpdatedAt} tabs={KR_TABS} />
                   </div>
-                  <span className="flex items-center gap-1 text-[10px] text-blue-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                    LIVE
-                  </span>
-                </div>
-                <WhaleFeedPanel
-                  sections={whaleUsSections}
-                  updated_at={whaleUsUpdatedAt}
-                  tabs={US_TABS}
-                  emptyMessage="미국장 개장 시간에 자동으로 업데이트됩니다."
-                />
-              </div>
+                );
+
+                const usPanel = (
+                  <div className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-base font-bold">🇺🇸 미국 시장 현황</h3>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-[10px] text-gray-600">주요 지수·섹터·급등락 종목 (5분 갱신)</p>
+                          {whaleUsUpdatedAt && (
+                            <span className="text-[9px] text-gray-400 font-medium bg-white/[0.03] px-1.5 py-0.5 rounded border border-white/5 whitespace-nowrap">
+                              🕒 최종 업데이트: {formatKST(whaleUsUpdatedAt)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="flex items-center gap-1 text-[10px] text-blue-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                        LIVE
+                      </span>
+                    </div>
+                    <WhaleFeedPanel
+                      sections={whaleUsSections}
+                      updated_at={whaleUsUpdatedAt}
+                      tabs={US_TABS}
+                      emptyMessage="미국장 개장 시간에 자동으로 업데이트됩니다."
+                    />
+                  </div>
+                );
+
+                return usIsNewer ? <>{usPanel}{krPanel}</> : <>{krPanel}{usPanel}</>;
+              })()}
             </div>
           </div>
         </main>

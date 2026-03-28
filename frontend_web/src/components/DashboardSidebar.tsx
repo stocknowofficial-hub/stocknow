@@ -34,7 +34,8 @@ function ProviderBadge({ provider, size = 12 }: { provider: string; size?: numbe
 
 const navItems = [
   { href: '/dashboard', icon: '📊', label: '대시보드' },
-  { href: '/predictions', icon: '🔮', label: '예측 트래커' },
+  { href: '/consensus', icon: '🧭', label: '주간 컨센서스' },
+  { href: '/trump', icon: '🏛️', label: '트럼프 임팩트' },
   { href: '/referrals', icon: '🎁', label: '초대 혜택' },
   { href: '/settings', icon: '⚙️', label: '설정' },
 ];

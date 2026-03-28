@@ -12,6 +12,8 @@ export interface Prediction {
   target_code: string | null;
   basis: string | null;
   key_points: string | null;
+  related_stocks: string | null;
+  action: string | null;
   timeframe: number;
   expires_at: string;
   confidence: 'high' | 'medium' | 'low';
@@ -131,6 +133,60 @@ export function PredictionCard({ pred }: { pred: Prediction }) {
       ) : pred.basis ? (
         <p className="text-[11px] text-gray-500 mb-2 pl-7 leading-relaxed">{pred.basis}</p>
       ) : null}
+
+      {/* Action 추천 */}
+      {pred.action && (() => {
+        const label = pred.action.split(' · ')[0].trim();
+        const reason = pred.action.includes(' · ') ? pred.action.slice(pred.action.indexOf(' · ') + 3) : null;
+        let cls = 'bg-gray-500/20 text-gray-400 border-gray-500/20';
+        if (label === '매수 고려' || label === '비중 확대') cls = 'bg-green-500/20 text-green-400 border-green-500/20';
+        else if (label === '매도 고려' || label === '비중 축소') cls = 'bg-red-500/20 text-red-400 border-red-500/20';
+        else if (label === '관망') cls = 'bg-yellow-500/20 text-yellow-400 border-yellow-500/20';
+        const [bg, text, border] = cls.split(' ');
+        return (
+          <div className={`pl-7 mb-2`}>
+            <div className={`inline-flex flex-col gap-0.5 px-3 py-2 rounded-xl ${bg} border ${border}`}>
+              <span className={`text-sm font-bold ${text}`}>⚡ {label}</span>
+              {reason && <span className={`text-[11px] ${text} opacity-70`}>{reason}</span>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 관련 종목 */}
+      {pred.related_stocks && (() => {
+        try {
+          const stocks = JSON.parse(pred.related_stocks) as { name: string; code: string; reason: string }[];
+          if (!stocks.length) return null;
+          return (
+            <div className="pl-7 mb-3">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">관련 종목</p>
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {stocks.map((s, i) => {
+                  const isKr = /^\d{6}$/.test(s.code);
+                  const href = isKr
+                    ? `https://finance.naver.com/item/main.naver?code=${s.code}`
+                    : `https://finance.naver.com/world/sise.naver?symbol=${s.code}`;
+                  return (
+                    <a key={i} href={href} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] transition-colors group">
+                      <span className="text-xs font-semibold text-gray-200 group-hover:text-white">{s.name}</span>
+                      <span className="text-[10px] text-gray-600">{s.code}</span>
+                    </a>
+                  );
+                })}
+              </div>
+              <div className="space-y-0.5">
+                {stocks.map((s, i) => (
+                  <p key={i} className="text-[10px] text-gray-600">
+                    <span className="text-gray-500">{s.name}</span> · {s.reason}
+                  </p>
+                ))}
+              </div>
+            </div>
+          );
+        } catch { return null; }
+      })()}
 
       {/* 실시간 가격 추적 배지 */}
       {isPending && priceStatus.isTracking && priceStatus.badge && (

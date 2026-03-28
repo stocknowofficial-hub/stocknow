@@ -67,7 +67,7 @@ export function PlanSelector({ onClose }: PlanSelectorProps) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div
-                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
                       selected === plan.id ? 'border-purple-400' : 'border-gray-600'
                     }`}
                   >
@@ -79,21 +79,28 @@ export function PlanSelector({ onClose }: PlanSelectorProps) {
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm">{plan.label}</span>
                       {plan.badge && (
-                        <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-bold">
+                        <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-bold whitespace-nowrap">
                           {plan.badge}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 pr-2 leading-relaxed">{plan.description}</p>
                   </div>
                 </div>
-                <span
-                  className={`text-sm font-bold ${
-                    selected === plan.id ? 'text-purple-300' : 'text-gray-400'
-                  }`}
-                >
-                  {plan.priceLabel}
-                </span>
+                <div className="flex flex-col items-end shrink-0">
+                  {plan.originalPrice && (
+                    <span className="text-[10px] text-gray-500 line-through mb-0.5">
+                      {plan.originalPrice.toLocaleString()}원
+                    </span>
+                  )}
+                  <span
+                    className={`text-sm font-bold ${
+                      selected === plan.id ? 'text-purple-300' : 'text-gray-400'
+                    }`}
+                  >
+                    {plan.priceLabel}
+                  </span>
+                </div>
               </div>
             </button>
           ))}

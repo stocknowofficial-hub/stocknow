@@ -13,16 +13,15 @@ class GeminiSearchPro:
             self.client = None
         else:
             try:
-                # 🚀 User Requested Model: gemini-3-pro-preview
                 self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-                print(f"✨ [Gemini Pro] 브리핑 전용 엔진 가동 (Model: gemini-3-pro-preview)")
+                print(f"✨ [Gemini Pro] 브리핑 전용 엔진 가동 (Model: gemini-2.5-flash)")
             except Exception as e:
                 print(f"❌ [Gemini Pro] 초기화 실패: {e}")
                 self.client = None
 
     def _generate_sync(self, prompt):
         return self.client.models.generate_content(
-            model='gemini-3-pro-preview', 
+            model='gemini-2.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2, # 정보를 다루므로 창의성(1.0)보다 정확성(0.2) 중시
@@ -169,7 +168,7 @@ class GeminiSearchPro:
                 # Assuming simple upload works for now.
                 
                 response = self.client.models.generate_content(
-                    model='gemini-3-pro-preview',
+                    model='gemini-2.5-flash',
                     contents=[prompt, uploaded_file],
                     config=types.GenerateContentConfig(temperature=0.2)
                 )

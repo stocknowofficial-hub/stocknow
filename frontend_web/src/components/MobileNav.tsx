@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const items = [
-  { href: '/dashboard', icon: '📊', label: '대시보드' },
-  { href: '/referrals', icon: '🎁', label: '초대 혜택' },
-  { href: '/settings',  icon: '⚙️', label: '설정' },
+  { href: '/dashboard',  icon: '📊', label: '대시보드' },
+  { href: '/consensus',  icon: '🧭', label: '컨센서스' },
+  { href: '/trump',      icon: '🏛️', label: '트럼프' },
+  { href: '/referrals',  icon: '🎁', label: '초대 혜택' },
+  { href: '/settings',   icon: '⚙️', label: '설정' },
 ];
 
 export function MobileNav() {
