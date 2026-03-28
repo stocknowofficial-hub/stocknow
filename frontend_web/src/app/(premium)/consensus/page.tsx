@@ -1,4 +1,5 @@
 import { ReportAccordion } from '@/components/ReportAccordion';
+import { MacroGauge, FG_ZONES, VIX_ZONES, getMacroComment } from '@/components/MacroGauge';
 
 const ETF_NAMES: Record<string, string> = {
   '069500': 'KODEX 200 (코스피)',
@@ -81,6 +82,16 @@ interface AccuracyRow {
   expires_at: string;
 }
 
+interface MacroRow {
+  key: string;
+  value: number;
+  label: string;
+  prev_close: number | null;
+  week_ago: number | null;
+  month_ago: number | null;
+  updated_at: string | null;
+}
+
 async function getConsensusData() {
   try {
     const { getCloudflareContext } = require("@opennextjs/cloudflare");
@@ -88,12 +99,13 @@ async function getConsensusData() {
     const db = ctx?.env?.DB;
     if (!db) return null;
 
-    const [dirRes, targetRes, reportRes, accRes, accStats] = await Promise.all([
+    const [dirRes, targetRes, reportRes, accRes, accStats, macroRes] = await Promise.all([
       db.prepare(`SELECT direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY direction`).all(),
       db.prepare(`SELECT target, target_code, direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY target, direction`).all(),
       db.prepare(`SELECT id, source, source_desc, source_url, prediction, direction, target, target_code, confidence, created_at, key_points, related_stocks, action, trade_setup, price_change_pct, expires_at FROM predictions WHERE created_at >= datetime('now', '-7 days') ORDER BY created_at DESC`).all(),
       db.prepare(`SELECT id, source, prediction, direction, target, result, created_at, expires_at FROM predictions WHERE result IS NOT NULL AND expires_at >= datetime('now', '-14 days') ORDER BY expires_at DESC LIMIT 20`).all(),
       db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) as hits FROM predictions WHERE result IS NOT NULL`).first(),
+      db.prepare(`SELECT * FROM macro_feed`).all(),
     ]);
     const accStatsTyped = accStats as { total: number; hits: number } | null;
 
@@ -119,6 +131,12 @@ async function getConsensusData() {
     }
     const topTargets = [...targetMap.values()].sort((a, b) => b.count - a.count).slice(0, 8);
 
+    // Macro 데이터 파싱
+    const macroMap: Record<string, MacroRow> = {};
+    for (const row of macroRes.results as MacroRow[]) {
+      macroMap[row.key] = row;
+    }
+
     return {
       weekLabel: getWeekLabel(),
       reportCount: total,
@@ -126,6 +144,7 @@ async function getConsensusData() {
       topTargets,
       reports: reportRes.results as ReportRow[],
       accuracy: accRes.results as AccuracyRow[],
+      macro: macroMap,
       accuracyStats: {
         total: accStatsTyped?.total ?? 0,
         hits: accStatsTyped?.hits ?? 0,
@@ -162,7 +181,11 @@ export default async function ConsensusPage() {
     );
   }
 
-  const { direction, topTargets, reports, accuracy, accuracyStats, weekLabel, reportCount } = data;
+  const { direction, topTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, macro } = data;
+
+  const fg = macro?.fear_greed ?? null;
+  const vix = macro?.vix ?? null;
+  const macroComment = getMacroComment(fg?.value ?? null, vix?.value ?? null);
 
   // 리포트 vs 트럼프 SNS 분리
   const reportItems = reports.filter(r => r.source.toLowerCase() !== 'trump');
@@ -182,6 +205,41 @@ export default async function ConsensusPage() {
           <h1 className="text-2xl lg:text-3xl font-bold text-white mb-2">🧭 주간 컨센서스</h1>
           <p className="text-sm text-gray-500">{weekLabel} · 증권사 리포트 {reportItems.length}건 · 트럼프 SNS {trumpItems.length}건</p>
           <p className="text-[11px] text-gray-600 mt-1">※ 투자 조언이 아닙니다. 참고 목적으로만 활용하세요.</p>
+        </div>
+
+        {/* 매크로 시그널 — 게이지 2개 + 코멘트 */}
+        <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
+          <div className="mb-4">
+            <h3 className="text-base font-bold text-white">📡 매크로 시그널</h3>
+            <p className="text-[10px] text-gray-500 mt-0.5">CNN Fear &amp; Greed · CBOE VIX · 30분 갱신</p>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <MacroGauge
+              title="CNN Fear & Greed"
+              value={fg?.value ?? null}
+              label={fg?.label ?? null}
+              maxValue={100}
+              zones={FG_ZONES}
+              prevClose={fg?.prev_close}
+              weekAgo={fg?.week_ago}
+              monthAgo={fg?.month_ago}
+            />
+            <MacroGauge
+              title="CBOE VIX"
+              value={vix?.value ?? null}
+              label={vix?.label ?? null}
+              maxValue={60}
+              zones={VIX_ZONES}
+              prevClose={vix?.prev_close}
+              weekAgo={vix?.week_ago}
+            />
+          </div>
+          {/* rule-based 코멘트 */}
+          <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3">
+            <p className="text-[10px] text-gray-600 mb-1 font-semibold uppercase tracking-wider">AI 시그널 코멘트</p>
+            <p className={`text-sm font-medium ${macroComment.color}`}>{macroComment.text}</p>
+            <p className="text-[10px] text-gray-600 mt-1">※ 참고 목적 자동 분석입니다. 투자 조언이 아닙니다.</p>
+          </div>
         </div>
 
         {/* 적중률 배너 — 상단 항상 표시 */}

@@ -1,6 +1,11 @@
 import { cpSync, copyFileSync } from "fs";
 import { execSync } from "child_process";
 
+// 커밋 해시만 사용 (한글/이모지 포함된 메시지는 Cloudflare API가 거부)
+const commitHash = (() => {
+  try { return execSync("git rev-parse --short HEAD").toString().trim(); } catch { return "unknown"; }
+})();
+
 const src = ".open-next";
 const dest = ".open-next/assets";
 
@@ -27,4 +32,4 @@ for (const dir of ["cloudflare", "middleware", "server-functions", ".build"]) {
 }
 
 console.log("\n🚀 Running wrangler pages deploy...\n");
-execSync("npx wrangler pages deploy .open-next/assets --commit-dirty=true", { stdio: "inherit" });
+execSync(`npx wrangler pages deploy .open-next/assets --commit-dirty=true --commit-message="${commitHash}"`, { stdio: "inherit" });

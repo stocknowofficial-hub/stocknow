@@ -23,7 +23,7 @@ export default async function PremiumLayout({ children }: { children: React.Reac
         .first() as { plan: string; status: string; expires_at: string | null } | null;
 
       const plan = sub?.plan ?? "free";
-      const isPaid = plan !== "free" && plan !== "trial";
+      const isPaid = plan !== "free"; // trial 포함 접근 허용
 
       // 만료 여부 체크 (expires_at이 있는 경우)
       const isExpired = sub?.expires_at
