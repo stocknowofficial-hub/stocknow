@@ -108,10 +108,13 @@ docker compose logs worker --tail=100 -f
 - `/features` — 기능 소개
 
 ### 배포
-```bash
-cd frontend_web
-npm run pages:deploy
-```
+
+| 환경 | 명령어 | URL | D1 DB |
+|------|--------|-----|-------|
+| **개발 (Windows)** | `npm run pages:deploy:dev` | `stock-now-dev.pages.dev` | `stock-now-dev-database` |
+| **운영** | `npm run pages:deploy` | `stock-now.pages.dev` | `stock-now-database` |
+
+> ⚠️ Cloudflare Pages 배포는 **Windows에서만** 합니다. 맥북은 Docker만 담당.
 
 ---
 
@@ -350,7 +353,52 @@ stock_now/
 
 ---
 
-## 13. ⚠️ 문제 해결 (Troubleshooting)
+## 13. 🔀 개발/운영 워크플로우
+
+### 역할 분리
+
+| 역할 | Windows (개발) | MacBook (운영) |
+|------|--------------|--------------|
+| Cloudflare Pages 배포 | ✅ `pages:deploy:dev` / `pages:deploy` | ❌ 안 함 |
+| Docker 서비스 | 로컬 테스트용 | ✅ 24/7 상시 실행 |
+| D1 DB | `stock-now-dev-database` | `stock-now-database` |
+
+### 일상 개발 흐름
+
+```
+1. Windows에서 코드 수정
+       ↓
+2. npm run pages:deploy:dev  →  stock-now-dev.pages.dev 테스트
+       ↓
+3. 문제 없으면 git push origin main
+       ↓
+4. MacBook: git pull → docker compose up -d --build  (Python 코드 변경 시만)
+       ↓
+5. Windows: npm run pages:deploy  (Next.js 변경 시만)
+```
+
+### MacBook 운영 서버 업데이트
+
+```bash
+# MacBook 터미널
+cd ~/Projects/stock_now
+git pull
+docker compose up -d --build
+```
+
+### dev DB → prod DB 동기화 (필요 시)
+
+```bash
+# Windows (frontend_web 폴더)
+npx wrangler d1 export stock-now-database --remote --output=prod_backup.sql
+(echo "PRAGMA foreign_keys=OFF;" && cat prod_backup.sql) > prod_backup_fixed.sql
+npx wrangler d1 execute stock-now-dev-database --remote --file=prod_backup_fixed.sql
+rm prod_backup.sql prod_backup_fixed.sql
+```
+
+---
+
+## 14. ⚠️ 문제 해결 (Troubleshooting)
 
 | 증상 | 확인 방법 | 해결 |
 |---|---|---|
