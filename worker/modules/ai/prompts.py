@@ -266,16 +266,45 @@ def get_report_analysis_prompt(source, text, is_file_mode=False):
     [GeminiSearchPro] 리포트(BlackRock, 키움 등) 분석용 프롬프트
     is_file_mode=True일 경우, 텍스트 입력을 생략하고 첨부파일 분석을 지시합니다.
     """
-    prompt = ""
-    
     input_section = f'[Input Text]\n        "{text}"'
     if is_file_mode:
         input_section = "[Input Source]\n        *Attached PDF File* (Analyze the content of the uploaded document)"
 
-    if source == "BlackRock":
-        prompt = f"""
+    # source 정규화: 한국어 증권사명 → 내부 키로 매핑
+    src = (source or "").strip()
+    if src == "BlackRock":
+        source_key = "BlackRock"
+    elif any(k in src for k in ["키움", "Kiwoom"]):
+        source_key = "Kiwoom"
+    elif any(k in src for k in ["미래에셋", "MiraeAsset", "Mirae"]):
+        source_key = "MiraeAsset"
+    elif any(k in src for k in ["삼성", "Samsung"]):
+        source_key = "Samsung"
+    elif any(k in src for k in ["NH", "농협"]):
+        source_key = "NH"
+    elif any(k in src for k in ["한국투자", "Korea Investment"]):
+        source_key = "KoreaInvestment"
+    elif any(k in src for k in ["신한", "Shinhan"]):
+        source_key = "Shinhan"
+    elif any(k in src for k in ["하나", "Hana"]):
+        source_key = "Hana"
+    elif any(k in src for k in ["KB", "국민"]):
+        source_key = "KB"
+    else:
+        source_key = "KR_BROKER"  # 기타 한국 증권사 공통 fallback
+
+    METADATA_KR = """
+        [METADATA]
+        반드시 맨 마지막에 아래 형식으로 추가:
+        [Sectors: 쉼표 구분] (예: 반도체, 2차전지, 바이오)
+        [Topics: 쉼표 구분] (예: 금리인하, 밸류업, AI)
+        [Sentiment: Positive/Negative/Neutral]
+        """
+
+    if source_key == "BlackRock":
+        return f"""
         [System Role]
-        You are a "Global Macro Strategist". Summarize this report for retail investors.
+        You are a "Global Macro Strategist". Summarize this report for retail investors in KOREAN.
 
         {input_section}
 
@@ -286,50 +315,96 @@ def get_report_analysis_prompt(source, text, is_file_mode=False):
 
         [Output Structure]
         1. 📜 [핵심 요약]
-        - (Korean)
+        - (한국어로 작성)
         2. 📈 [주목할 자산] (Bullish)
-        - (Korean)
+        - (한국어로 작성)
         3. 📉 [주의할 자산] (Bearish)
-        - (Korean)
+        - (한국어로 작성)
         4. 💡 [Stock Now's Note]
-        - (One-line insight)
+        - (한 줄 인사이트, 한국어)
 
         [METADATA]
-        Please append the following strictly at the end:
+        Please append strictly at the end:
         [Sectors: List, Of, Related, Sectors]
         [Topics: List, Of, Keywords]
         [Sentiment: Positive/Negative/Neutral]
         """
-        
-    elif source == "Kiwoom":
-        prompt = f"""
+
+    elif source_key == "Kiwoom":
+        return f"""
         [System Role]
-        당신은 대한민국 최고의 시황 애널리스트입니다. 키움증권 리포트를 분석합니다.
+        당신은 대한민국 최고의 시황 애널리스트입니다. 키움증권 주간 리포트를 분석합니다.
+        반드시 한국어로 작성하세요.
 
         {input_section}
 
         [Task]
-        1. Core Issue (1 sentence).
-        2. Expected KOSPI Band (if exists).
-        3. Bullish/Bearish Sectors.
+        1. 이번 주 핵심 이슈 1문장 요약.
+        2. 예상 코스피 밴드 (있을 경우).
+        3. 주목할 섹터 / 주의할 섹터.
 
         [Output Structure]
         1. 📜 [이번 주 핵심]
         - ...
-        2. 🔢 [예상 코스피]
-        - ... (없으면 '분석 내용 없음')
+        2. 🔢 [예상 코스피 밴드]
+        - ... (언급 없으면 '해당 없음')
         3. 🚀 [주목할 섹터]
         - ...
         4. ⚠️ [주의할 섹터]
         - ...
         5. 💡 [Stock Now's Note]
         - ...
-
-        [METADATA]
-        Please append the following strictly at the end:
-        [Sectors: 쉼표 구분] (e.g. 반도체, 2차전지)
-        [Topics: 쉼표 구분] (e.g. 금리인하, 밸류업)
-        [Sentiment: Positive/Negative/Neutral]
+        {METADATA_KR}
         """
-        
-    return prompt
+
+    elif source_key == "MiraeAsset":
+        return f"""
+        [System Role]
+        당신은 대한민국 최고의 투자 애널리스트입니다. 미래에셋증권 리포트를 분석합니다.
+        반드시 한국어로 작성하세요.
+
+        {input_section}
+
+        [Task]
+        1. 리포트 핵심 주제 1문장.
+        2. 주요 투자 포인트 (Bullish/Bearish 자산 또는 섹터).
+        3. 리스크 요인.
+
+        [Output Structure]
+        1. 📜 [핵심 요약]
+        - ...
+        2. 📈 [투자 기회]
+        - ...
+        3. 📉 [리스크 요인]
+        - ...
+        4. 💡 [Stock Now's Note]
+        - ...
+        {METADATA_KR}
+        """
+
+    else:
+        # 기타 한국 증권사 공통 fallback
+        return f"""
+        [System Role]
+        당신은 대한민국 최고의 투자 애널리스트입니다. {src} 주간 리포트를 분석합니다.
+        반드시 한국어로 작성하세요.
+
+        {input_section}
+
+        [Task]
+        1. 리포트 핵심 주제 1문장 요약.
+        2. 주목할 자산/섹터 (Bullish).
+        3. 주의할 자산/섹터 (Bearish).
+        4. 투자자를 위한 핵심 메시지.
+
+        [Output Structure]
+        1. 📜 [핵심 요약]
+        - ...
+        2. 📈 [주목할 자산/섹터]
+        - ...
+        3. 📉 [주의할 자산/섹터]
+        - ...
+        4. 💡 [Stock Now's Note]
+        - ...
+        {METADATA_KR}
+        """

@@ -1,6 +1,9 @@
 import { cpSync, copyFileSync } from "fs";
 import { execSync } from "child_process";
 
+const isDev = process.argv.includes('--dev');
+const projectName = isDev ? 'stock-now-dev' : 'stock-now';
+
 // 커밋 해시만 사용 (한글/이모지 포함된 메시지는 Cloudflare API가 거부)
 const commitHash = (() => {
   try { return execSync("git rev-parse --short HEAD").toString().trim(); } catch { return "unknown"; }
@@ -31,5 +34,8 @@ for (const dir of ["cloudflare", "middleware", "server-functions", ".build"]) {
   }
 }
 
-console.log("\n🚀 Running wrangler pages deploy...\n");
-execSync(`npx wrangler pages deploy .open-next/assets --commit-dirty=true --commit-message="${commitHash}"`, { stdio: "inherit" });
+console.log(`\n🚀 Deploying to [${projectName}]...\n`);
+execSync(
+  `npx wrangler pages deploy .open-next/assets --project-name=${projectName} --commit-dirty=true --commit-message="${commitHash}"`,
+  { stdio: "inherit" }
+);

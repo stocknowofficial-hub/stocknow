@@ -57,6 +57,12 @@ function daysLeft(expiresAt: string): number {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+function formatPrice(price: number, code: string | null): string {
+  const isKr = /^\d{6}$/.test(code ?? '');
+  if (isKr) return price.toLocaleString('ko-KR') + '원';
+  return '$' + price.toFixed(2);
+}
+
 function getPriceStatus(pred: Prediction): { isTracking: boolean; isAligned: boolean; badge: string | null } {
   if (pred.price_change_pct === null || pred.price_change_pct === undefined) {
     return { isTracking: false, isAligned: false, badge: null };
@@ -160,7 +166,7 @@ export function PredictionCard({ pred }: { pred: Prediction }) {
           if (!stocks.length) return null;
           return (
             <div className="pl-7 mb-3">
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">관련 종목</p>
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">함께 볼 종목 (참고용)</p>
               <div className="flex flex-wrap gap-1.5 mb-1.5">
                 {stocks.map((s, i) => {
                   const isKr = /^\d{6}$/.test(s.code);
@@ -191,16 +197,28 @@ export function PredictionCard({ pred }: { pred: Prediction }) {
       {/* 실시간 가격 추적 배지 */}
       {isPending && priceStatus.isTracking && priceStatus.badge && (
         <div className="pl-7 mb-3">
-          <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${
-            priceStatus.isAligned
-              ? 'bg-green-500/15 text-green-400'
-              : 'bg-white/[0.05] text-gray-400'
+          <div className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs px-2.5 py-1.5 rounded-xl ${
+            priceStatus.isAligned ? 'bg-green-500/15' : 'bg-white/[0.05]'
           }`}>
-            {priceStatus.isAligned ? '✅' : '⏳'} 리포트 당시 대비 {priceStatus.badge}
-            <span className="font-normal text-[10px] opacity-60">
-              ({pred.target})
-            </span>
-          </span>
+            <span>{priceStatus.isAligned ? '✅' : '⏳'}</span>
+            {pred.entry_price != null && pred.current_price != null ? (
+              <>
+                <span className="text-gray-500">{formatPrice(pred.entry_price, pred.target_code)}</span>
+                <span className="text-gray-600">→</span>
+                <span className={`font-bold ${priceStatus.isAligned ? 'text-green-400' : 'text-gray-300'}`}>
+                  {formatPrice(pred.current_price, pred.target_code)}
+                </span>
+                <span className={`font-bold ${priceStatus.isAligned ? 'text-green-400' : 'text-gray-400'}`}>
+                  ({priceStatus.badge})
+                </span>
+              </>
+            ) : (
+              <span className={`font-bold ${priceStatus.isAligned ? 'text-green-400' : 'text-gray-400'}`}>
+                게시 당시 대비 {priceStatus.badge}
+              </span>
+            )}
+            <span className="text-[10px] text-gray-600">({pred.target})</span>
+          </div>
         </div>
       )}
 

@@ -6,8 +6,9 @@ import { usePathname } from 'next/navigation';
 const items = [
   { href: '/dashboard',  icon: '📊', label: '대시보드' },
   { href: '/consensus',  icon: '🧭', label: '컨센서스' },
+  { href: '/history',    icon: '🎯', label: '성과' },
   { href: '/trump',      icon: '🏛️', label: '트럼프' },
-  { href: '/referrals',  icon: '🎁', label: '초대 혜택' },
+  { href: '/referrals',  icon: '🎁', label: '초대' },
   { href: '/settings',   icon: '⚙️', label: '설정' },
 ];
 
@@ -20,7 +21,7 @@ export function MobileNav() {
           const active = pathname === href;
           return (
             <Link key={href} href={href}
-              className={`flex flex-col items-center gap-1 px-5 py-1 rounded-xl transition-colors ${
+              className={`flex flex-col items-center gap-1 px-2 py-1 rounded-xl transition-colors ${
                 active ? 'text-purple-400' : 'text-gray-500'
               }`}>
               <span className="text-xl">{icon}</span>

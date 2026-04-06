@@ -131,10 +131,10 @@ export function HeroDashboard() {
       </div>
 
       {/* ── Divider ── */}
-      <div className="w-px bg-white/5 my-3 shrink-0" />
+      <div className="hidden md:block w-px bg-white/5 my-3 shrink-0" />
 
       {/* ── Right: Whale Alerts ── */}
-      <div className="w-40 md:w-48 shrink-0 flex flex-col p-3 gap-1.5 overflow-hidden">
+      <div className="hidden md:flex w-48 shrink-0 flex-col p-3 gap-1.5 overflow-hidden">
         <div className="flex items-center gap-1.5 mb-0.5">
           <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">🐋 고래 감지</span>
         </div>

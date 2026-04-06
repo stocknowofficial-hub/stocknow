@@ -1,5 +1,9 @@
-import { ReportAccordion } from '@/components/ReportAccordion';
-import { MacroGauge, FG_ZONES, VIX_ZONES, getMacroComment } from '@/components/MacroGauge';
+import Link from 'next/link';
+import { MacroGauge, FG_ZONES, VIX_ZONES, getIntegratedComment } from '@/components/MacroGauge';
+import { LastWeekPanel } from '@/components/LastWeekPanel';
+import { ShowMoreReports } from '@/components/ShowMoreReports';
+import { PredictionTableSection, type TableRow } from '@/components/PredictionTableSection';
+import { ShowMoreTargets, type TargetDisplay } from '@/components/ShowMoreTargets';
 
 const ETF_NAMES: Record<string, string> = {
   '069500': 'KODEX 200 (코스피)',
@@ -78,8 +82,20 @@ interface AccuracyRow {
   direction: string;
   target: string;
   result: string;
+  price_change_pct: number | null;
   created_at: string;
   expires_at: string;
+}
+
+interface WallStreetItem {
+  ticker: string;
+  name: string;
+  recommendation: string;
+  target_price: number | null;
+  current_price: number | null;
+  analyst_count: number;
+  upside_pct: number | null;
+  updated_at: string;
 }
 
 interface MacroRow {
@@ -99,15 +115,35 @@ async function getConsensusData() {
     const db = ctx?.env?.DB;
     if (!db) return null;
 
-    const [dirRes, targetRes, reportRes, accRes, accStats, macroRes] = await Promise.all([
+    const [dirRes, targetRes, sourcesRes, reportRes, reportCountRes, accRes, accStats, lastWeekTargetRes, summaryRes, bestTradeRes, keyPointsRes, tableRes] = await Promise.all([
       db.prepare(`SELECT direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY direction`).all(),
       db.prepare(`SELECT target, target_code, direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY target, direction`).all(),
-      db.prepare(`SELECT id, source, source_desc, source_url, prediction, direction, target, target_code, confidence, created_at, key_points, related_stocks, action, trade_setup, price_change_pct, expires_at FROM predictions WHERE created_at >= datetime('now', '-7 days') ORDER BY created_at DESC`).all(),
-      db.prepare(`SELECT id, source, prediction, direction, target, result, created_at, expires_at FROM predictions WHERE result IS NOT NULL AND expires_at >= datetime('now', '-14 days') ORDER BY expires_at DESC LIMIT 20`).all(),
-      db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) as hits FROM predictions WHERE result IS NOT NULL`).first(),
-      db.prepare(`SELECT * FROM macro_feed`).all(),
+      db.prepare(`SELECT DISTINCT target, direction, source FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).all(),
+      db.prepare(`SELECT id, source, source_desc, source_url, prediction, direction, target, target_code, confidence, created_at, key_points, related_stocks, action, trade_setup, price_change_pct, entry_price, current_price, expires_at FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' ORDER BY created_at DESC LIMIT 10`).all(),
+      db.prepare(`SELECT COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).first(),
+      db.prepare(`SELECT id, source, prediction, direction, target, result, price_change_pct, peak_change_pct, peak_at, hit_change_pct, hit_at, created_at, expires_at FROM predictions WHERE result IS NOT NULL AND expires_at >= datetime('now', '-14 days') ORDER BY ABS(COALESCE(peak_change_pct, hit_change_pct, price_change_pct, 0)) DESC LIMIT 20`).all(),
+      db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) as hits, ROUND(AVG(CASE WHEN result = 'hit' AND hit_change_pct IS NOT NULL THEN hit_change_pct WHEN result = 'hit' AND price_change_pct IS NOT NULL THEN price_change_pct END), 2) as avg_hit_pct, ROUND(AVG(CASE WHEN result = 'miss' AND price_change_pct IS NOT NULL THEN price_change_pct END), 2) as avg_miss_pct FROM predictions WHERE result IS NOT NULL`).first(),
+      db.prepare(`SELECT target, target_code, direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-14 days') AND created_at < datetime('now', '-7 days') AND source != 'trump' GROUP BY target, direction`).all(),
+      db.prepare(`SELECT week_key, title, body, signal, updated_at FROM weekly_summary ORDER BY updated_at DESC LIMIT 1`).first().catch(() => null),
+      db.prepare(`SELECT target, price_change_pct, direction FROM predictions WHERE result = 'hit' AND price_change_pct IS NOT NULL ORDER BY price_change_pct DESC LIMIT 1`).first().catch(() => null),
+      db.prepare(`SELECT target, key_points FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' AND key_points IS NOT NULL`).all(),
+      db.prepare(`SELECT id, source, source_desc, source_url, target, target_code, direction, confidence, action, expires_at, created_at FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' ORDER BY CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC LIMIT 300`).all(),
     ]);
-    const accStatsTyped = accStats as { total: number; hits: number } | null;
+    const accStatsTyped = accStats as { total: number; hits: number; avg_hit_pct: number | null; avg_miss_pct: number | null } | null;
+
+    // 지난주 Top targets
+    const lastWeekMap = new Map<string, TargetStat>();
+    for (const row of lastWeekTargetRes.results as Array<{ target: string; target_code: string | null; direction: string; cnt: number }>) {
+      const key = row.target;
+      const existing = lastWeekMap.get(key) ?? { target: row.target, target_code: row.target_code, up: 0, down: 0, sideways: 0, count: 0, dominant: 'sideways' as DirType };
+      if (row.direction === 'up') existing.up += row.cnt;
+      else if (row.direction === 'down') existing.down += row.cnt;
+      else existing.sideways += row.cnt;
+      existing.count = existing.up + existing.down + existing.sideways;
+      existing.dominant = existing.up >= existing.down && existing.up >= existing.sideways ? 'up' : existing.down >= existing.sideways ? 'down' : 'sideways';
+      lastWeekMap.set(key, existing);
+    }
+    const lastWeekTargets = [...lastWeekMap.values()].sort((a, b) => b.count - a.count).slice(0, 8);
 
     // Direction counts
     const dirMap: Record<string, number> = { up: 0, down: 0, sideways: 0 };
@@ -129,26 +165,71 @@ async function getConsensusData() {
       existing.dominant = existing.up >= existing.down && existing.up >= existing.sideways ? 'up' : existing.down >= existing.sideways ? 'down' : 'sideways';
       targetMap.set(key, existing);
     }
-    const topTargets = [...targetMap.values()].sort((a, b) => b.count - a.count).slice(0, 8);
+    const topTargets = [...targetMap.values()].sort((a, b) => b.count - a.count).slice(0, 30);
 
-    // Macro 데이터 파싱
+    // Macro 데이터 — 테이블 없어도 페이지 전체가 깨지지 않도록 분리
     const macroMap: Record<string, MacroRow> = {};
-    for (const row of macroRes.results as MacroRow[]) {
-      macroMap[row.key] = row;
+    try {
+      const macroRes = await db.prepare(`SELECT * FROM macro_feed`).all();
+      for (const row of macroRes.results as MacroRow[]) {
+        macroMap[row.key] = row;
+      }
+    } catch {
+      // macro_feed 테이블 미존재 시 빈 객체로 처리
     }
+
+    // 월가 컨센서스 데이터
+    let wallstreetItems: WallStreetItem[] = [];
+    try {
+      const wsRes = await db.prepare(`SELECT ticker, name, recommendation, target_price, current_price, analyst_count, upside_pct, updated_at FROM wallstreet_consensus ORDER BY updated_at DESC`).all();
+      wallstreetItems = wsRes.results as WallStreetItem[];
+    } catch { /* 테이블 없으면 빈 배열 */ }
+
+    const weeklySummary = summaryRes as { week_key: string; title: string; body: string; signal: string; updated_at: string } | null;
+    const bestTrade = bestTradeRes as { target: string; price_change_pct: number; direction: string } | null;
+
+    // 종목별 key_points 집계 (상위 2개 키워드)
+    const keyPointsMap = new Map<string, Map<string, number>>();
+    for (const row of keyPointsRes.results as Array<{ target: string; key_points: string }>) {
+      try {
+        const points: string[] = JSON.parse(row.key_points);
+        if (!keyPointsMap.has(row.target)) keyPointsMap.set(row.target, new Map());
+        const kmap = keyPointsMap.get(row.target)!;
+        for (const pt of points.slice(0, 3)) {
+          kmap.set(pt, (kmap.get(pt) ?? 0) + 1);
+        }
+      } catch { /* ignore parse errors */ }
+    }
+    const topKeyPoints = new Map<string, string[]>();
+    for (const [target, kmap] of keyPointsMap) {
+      const sorted = [...kmap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(e => e[0]);
+      topKeyPoints.set(target, sorted);
+    }
+
+    const reportTotal = (reportCountRes as { cnt: number } | null)?.cnt ?? 0;
 
     return {
       weekLabel: getWeekLabel(),
       reportCount: total,
+      reportTotal,
+      tableRows: tableRes.results,
       direction: { up: dirMap.up, down: dirMap.down, sideways: dirMap.sideways, total },
       topTargets,
+      lastWeekTargets,
       reports: reportRes.results as ReportRow[],
       accuracy: accRes.results as AccuracyRow[],
       macro: macroMap,
+      weeklySummary,
+      bestTrade,
+      topKeyPoints: Object.fromEntries(topKeyPoints),
+      sources: sourcesRes.results as Array<{ target: string; direction: string; source: string }>,
+      wallstreet: wallstreetItems,
       accuracyStats: {
         total: accStatsTyped?.total ?? 0,
         hits: accStatsTyped?.hits ?? 0,
         hitRate: accStatsTyped && accStatsTyped.total > 0 ? Math.round((accStatsTyped.hits / accStatsTyped.total) * 100) : null,
+        avgHitPct: accStatsTyped?.avg_hit_pct ?? null,
+        avgMissPct: accStatsTyped?.avg_miss_pct ?? null,
       },
     };
   } catch {
@@ -181,15 +262,64 @@ export default async function ConsensusPage() {
     );
   }
 
-  const { direction, topTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, macro } = data;
+  const { direction, topTargets, lastWeekTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, reportTotal, tableRows, macro, weeklySummary, bestTrade, topKeyPoints, wallstreet, sources } = data;
 
   const fg = macro?.fear_greed ?? null;
   const vix = macro?.vix ?? null;
-  const macroComment = getMacroComment(fg?.value ?? null, vix?.value ?? null);
 
-  // 리포트 vs 트럼프 SNS 분리
-  const reportItems = reports.filter(r => r.source.toLowerCase() !== 'trump');
-  const trumpItems = reports.filter(r => r.source.toLowerCase() === 'trump');
+  const topBullish = topTargets
+    .filter(t => t.dominant === 'up')
+    .map(t => ({ name: getTargetName(t.target, t.target_code), count: t.up }));
+  const topBearish = topTargets
+    .filter(t => t.dominant === 'down')
+    .map(t => ({ name: getTargetName(t.target, t.target_code), count: t.down }));
+
+  const macroComment = getIntegratedComment(fg?.value ?? null, vix?.value ?? null, topBullish, topBearish);
+
+  // 종목별 언급 증권사 맵 구성
+  const sourcesMap = new Map<string, { up: string[]; down: string[] }>();
+  for (const row of sources) {
+    const entry = sourcesMap.get(row.target) ?? { up: [], down: [] };
+    if (row.direction === 'up') entry.up.push(row.source);
+    else if (row.direction === 'down') entry.down.push(row.source);
+    sourcesMap.set(row.target, entry);
+  }
+
+  // ShowMoreTargets용 데이터 변환
+  const bullishTargets: TargetDisplay[] = topTargets
+    .filter(t => t.dominant === 'up')
+    .map(t => ({
+      displayName: getTargetName(t.target, t.target_code),
+      target_code: t.target_code,
+      up: t.up, down: t.down, count: t.count, dominant: t.dominant,
+      keyPoints: topKeyPoints[t.target] ?? [],
+      upSources: sourcesMap.get(t.target)?.up ?? [],
+      downSources: sourcesMap.get(t.target)?.down ?? [],
+    }));
+  const bearishTargets: TargetDisplay[] = topTargets
+    .filter(t => t.dominant === 'down')
+    .map(t => ({
+      displayName: getTargetName(t.target, t.target_code),
+      target_code: t.target_code,
+      up: t.up, down: t.down, count: t.count, dominant: t.dominant,
+      keyPoints: topKeyPoints[t.target] ?? [],
+      upSources: sourcesMap.get(t.target)?.up ?? [],
+      downSources: sourcesMap.get(t.target)?.down ?? [],
+    }));
+  const sidewaysTargets: TargetDisplay[] = topTargets
+    .filter(t => t.dominant === 'sideways')
+    .map(t => ({
+      displayName: getTargetName(t.target, t.target_code),
+      target_code: t.target_code,
+      up: t.up, down: t.down, count: t.count, dominant: t.dominant,
+      keyPoints: [],
+      upSources: sourcesMap.get(t.target)?.up ?? [],
+      downSources: sourcesMap.get(t.target)?.down ?? [],
+    }));
+
+  // reportRes는 이미 source != 'trump' 필터 적용된 상태
+  const reportItems = reports;
+  const trumpItems: ReportRow[] = []; // trump는 별도 페이지에서 관리
 
   // 주요 방향 결론
   const dominant = direction.up >= direction.down && direction.up >= direction.sideways ? 'up'
@@ -207,11 +337,83 @@ export default async function ConsensusPage() {
           <p className="text-[11px] text-gray-600 mt-1">※ 투자 조언이 아닙니다. 참고 목적으로만 활용하세요.</p>
         </div>
 
+        {/* AI 주간 핵심 뷰 카드 */}
+        {weeklySummary && (() => {
+          const signalStyle =
+            weeklySummary.signal === 'bullish' ? { border: 'border-emerald-500/30', bg: 'from-emerald-500/10 to-emerald-900/5', badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', icon: '📈', label: '강세' } :
+            weeklySummary.signal === 'bearish' ? { border: 'border-rose-500/30', bg: 'from-rose-500/10 to-rose-900/5', badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30', icon: '📉', label: '약세' } :
+            weeklySummary.signal === 'caution' ? { border: 'border-amber-500/30', bg: 'from-amber-500/10 to-amber-900/5', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: '⚠️', label: '주의' } :
+            { border: 'border-white/10', bg: 'from-white/5 to-transparent', badge: 'bg-white/10 text-gray-400 border-white/10', icon: '→', label: '중립' };
+
+          // body가 JSON이면 구조화, 아니면 레거시 텍스트로 처리
+          let structured: { situation?: string; analysis?: string; action?: string } | null = null;
+          try { structured = JSON.parse(weeklySummary.body); } catch { /* legacy plain text */ }
+
+          return (
+            <div className={`rounded-2xl lg:rounded-3xl border ${signalStyle.border} bg-gradient-to-br ${signalStyle.bg} p-6 lg:p-8 mb-6`}>
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">🤖 AI 통합 분석</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${signalStyle.badge}`}>
+                  {signalStyle.icon} {signalStyle.label}
+                </span>
+                <span className="text-[10px] text-gray-600 ml-auto">
+                  {new Date(weeklySummary.updated_at + 'Z').toLocaleString('ko-KR', {
+                    month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', hour12: false,
+                    timeZone: 'Asia/Seoul',
+                  })} 업데이트
+                </span>
+              </div>
+              <p className="text-base lg:text-lg font-bold text-white mb-4 leading-snug">{weeklySummary.title}</p>
+
+              {structured?.situation ? (
+                <div className="space-y-3">
+                  {structured.situation && (
+                    <div className="rounded-xl bg-black/20 border border-white/[0.06] px-4 py-3">
+                      <p className="text-xs text-rose-400 font-bold mb-1">🚨 현재 상황</p>
+                      <p className="text-sm text-gray-200 leading-relaxed">{structured.situation.replace(/^🚨\s*현재 상황:\s*/i, '')}</p>
+                    </div>
+                  )}
+                  {structured.analysis && (
+                    <div className="rounded-xl bg-black/20 border border-white/[0.06] px-4 py-3">
+                      <p className="text-xs text-blue-400 font-bold mb-1">📊 월가 시그널</p>
+                      <p className="text-sm text-gray-200 leading-relaxed">{structured.analysis.replace(/^📊\s*월가 시그널:\s*/i, '')}</p>
+                    </div>
+                  )}
+                  {structured.action && (
+                    <div className="rounded-xl bg-black/20 border border-white/[0.06] px-4 py-3">
+                      <p className="text-xs text-amber-400 font-bold mb-1">💡 Action Point</p>
+                      <p className="text-sm text-gray-200 leading-relaxed">{structured.action.replace(/^💡\s*Action Point:\s*/i, '')}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{weeklySummary.body}</p>
+              )}
+              <p className="text-[10px] text-gray-600 mt-3">※ AI 자동 분석 · 투자 조언 아님 · 매크로 + 증권사 리포트 + 트럼프 SNS 종합</p>
+            </div>
+          );
+        })()}
+
+
+
         {/* 매크로 시그널 — 게이지 2개 + 코멘트 */}
         <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
           <div className="mb-4">
             <h3 className="text-base font-bold text-white">📡 매크로 시그널</h3>
-            <p className="text-[10px] text-gray-500 mt-0.5">CNN Fear &amp; Greed · CBOE VIX · 30분 갱신</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">
+              CNN Fear &amp; Greed · CBOE VIX · 30분 갱신
+              {fg?.updated_at && (
+                <span className="ml-1">
+                  · 최종 업데이트:{' '}
+                  {new Date(fg.updated_at + 'Z').toLocaleString('ko-KR', {
+                    month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', hour12: false,
+                    timeZone: 'Asia/Seoul',
+                  })}
+                </span>
+              )}
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <MacroGauge
@@ -242,23 +444,21 @@ export default async function ConsensusPage() {
           </div>
         </div>
 
-        {/* 적중률 배너 — 상단 항상 표시 */}
-        <div className={`rounded-2xl lg:rounded-3xl border p-6 mb-8 flex items-center justify-between ${accuracyStats.total > 0 ? 'border-green-500/20 bg-gradient-to-br from-green-500/10 to-emerald-500/5' : 'border-white/[0.06] bg-white/[0.03]'}`}>
-          <div>
-            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${accuracyStats.total > 0 ? 'text-green-400' : 'text-gray-500'}`}>AI 누적 예측 적중률</p>
-            <p className="text-xs text-gray-400">
-              {accuracyStats.total > 0
-                ? `총 ${accuracyStats.total}건 결과 확정 · 적중 ${accuracyStats.hits}건`
-                : '예측 결과 집계 중 · 곧 공개됩니다'}
-            </p>
+        {/* 예측 성과 링크 배너 */}
+        <Link href="/history" className="flex items-center justify-between rounded-2xl lg:rounded-3xl border border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors p-4 mb-8 group">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🎯</span>
+            <div>
+              <p className="text-sm font-bold text-white">AI 예측 성과 기록</p>
+              <p className="text-xs text-gray-400">
+                {accuracyStats.total > 0
+                  ? `총 ${accuracyStats.total}건 확정 · 적중률 ${accuracyStats.hitRate}% · 적중 평균 ${accuracyStats.avgHitPct != null ? `+${accuracyStats.avgHitPct.toFixed(1)}%` : '-'}`
+                  : '예측 결과 집계 중'}
+              </p>
+            </div>
           </div>
-          <div className="text-right">
-            {accuracyStats.total > 0
-              ? <span className="text-4xl font-black text-green-400 tracking-tight">{accuracyStats.hitRate}%</span>
-              : <span className="text-xl font-bold text-gray-500">추적 중</span>
-            }
-          </div>
-        </div>
+          <span className="text-gray-500 group-hover:text-gray-300 transition-colors text-sm">전체 보기 →</span>
+        </Link>
 
       {reportCount === 0 ? (
         <div className="text-center py-20 text-gray-600">
@@ -278,80 +478,57 @@ export default async function ConsensusPage() {
             </div>
             <p className={`text-lg font-bold mb-5 ${dominantColor}`}>{dominantLabel}</p>
 
-            {/* 강세 자산 */}
-            {topTargets.filter(t => t.dominant === 'up').length > 0 && (
-              <div className="mb-4">
-                <p className="text-[11px] font-bold text-green-400 mb-2">📈 강세 전망</p>
-                <div className="space-y-2">
-                  {topTargets.filter(t => t.dominant === 'up').map(t => (
-                    <div key={t.target}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-200">{getTargetName(t.target, t.target_code)}</span>
-                          {t.target_code && t.target_code.length <= 6 && (
-                            <span className="text-[10px] text-gray-600">{t.target_code}</span>
-                          )}
-                        </div>
-                        <span className="text-green-400">{t.up}곳 언급</span>
-                      </div>
-                      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
-                          style={{ width: `${Math.round((t.up / direction.total) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <ShowMoreTargets
+              bullish={bullishTargets}
+              bearish={bearishTargets}
+              sideways={sidewaysTargets}
+              total={direction.total}
+            />
 
-            {/* 약세 자산 */}
-            {topTargets.filter(t => t.dominant === 'down').length > 0 && (
-              <div className="mb-4">
-                <p className="text-[11px] font-bold text-red-400 mb-2">📉 약세 전망</p>
-                <div className="space-y-2">
-                  {topTargets.filter(t => t.dominant === 'down').map(t => (
-                    <div key={t.target}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-200">{getTargetName(t.target, t.target_code)}</span>
-                          {t.target_code && t.target_code.length <= 6 && (
-                            <span className="text-[10px] text-gray-600">{t.target_code}</span>
-                          )}
-                        </div>
-                        <span className="text-red-400">{t.down}곳 언급</span>
-                      </div>
-                      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-red-500 to-rose-400 rounded-full"
-                          style={{ width: `${Math.round((t.down / direction.total) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 혼재 자산 */}
-            {topTargets.filter(t => t.dominant === 'sideways').length > 0 && (
-              <div>
-                <p className="text-[11px] font-bold text-gray-500 mb-2">→ 방향 혼재</p>
-                <div className="flex flex-wrap gap-2">
-                  {topTargets.filter(t => t.dominant === 'sideways').map(t => (
-                    <span key={t.target} className="text-[11px] text-gray-500 bg-white/5 px-2 py-1 rounded-lg">
-                      {getTargetName(t.target, t.target_code)} ({t.count}건)
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* 지난 주 비교 (토글) */}
+            {(() => {
+              const thisWeekMap = new Map(topTargets.map(t => [t.target, t]));
+              const lastBullish = lastWeekTargets
+                .filter(t => t.dominant === 'up')
+                .map(t => ({
+                  name: getTargetName(t.target, t.target_code),
+                  count: t.up,
+                  thisCount: (() => { const w = thisWeekMap.get(t.target); return w?.dominant === 'up' ? w.up : 0; })(),
+                }));
+              const lastBearish = lastWeekTargets
+                .filter(t => t.dominant === 'down')
+                .map(t => ({
+                  name: getTargetName(t.target, t.target_code),
+                  count: t.down,
+                  thisCount: (() => { const w = thisWeekMap.get(t.target); return w?.dominant === 'down' ? w.down : 0; })(),
+                }));
+              return <LastWeekPanel lastBullish={lastBullish} lastBearish={lastBearish} />;
+            })()}
           </div>
 
-          {/* 증권사 리포트 요약 (accordion) */}
-          {reportItems.length > 0 && (
+          {/* 분석 결과 요약 테이블 */}
+          {tableRows && tableRows.length > 0 && (
             <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
               <div className="mb-4">
-                <h3 className="text-base font-bold text-white">📑 증권사 리포트 ({reportItems.length}건)</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">주요 증권사 시황 및 종목 분석</p>
-              </div>              <ReportAccordion reports={reportItems} />
+                <h3 className="text-base font-bold text-white">📋 이번 주 TOP 10 시그널</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">전체 {reportTotal}건 중 신뢰도 · 최신순 상위 10개 · 상세 내용은 아래 리포트에서</p>
+              </div>
+              <PredictionTableSection rows={tableRows as TableRow[]} />
+            </div>
+          )}
+
+          {/* 증권사 리포트 상세 (accordion) */}
+          {reportItems.length > 0 && (
+            <div id="reports-section" className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
+              <div className="mb-4">
+                <h3 className="text-base font-bold text-white">📑 증권사 리포트 분석 결과 ({reportTotal}건)</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">주요 증권사 시황 및 종목 분석 · 최신 10건 표시</p>
+              </div>
+              <ShowMoreReports
+                reports={reportItems}
+                total={reportTotal}
+                wsMap={Object.fromEntries((wallstreet ?? []).map(w => [w.ticker, w]))}
+              />
             </div>
           )}
 
@@ -368,26 +545,6 @@ export default async function ConsensusPage() {
             </div>
           )}
 
-          {/* 최근 예측 결과 */}
-          {accuracy.length > 0 && (
-            <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
-              <div className="mb-4">
-                <h3 className="text-base font-bold text-white">🎯 최근 예측 결과</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">최근 2주 내 만료된 예측의 적중 여부</p>
-              </div>
-              <div className="space-y-2">
-                {accuracy.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <DirIcon dir={a.direction} />
-                      <span className="text-gray-400 truncate">{a.source} · {a.prediction}</span>
-                    </div>
-                    <ResultBadge result={a.result} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
       </div>

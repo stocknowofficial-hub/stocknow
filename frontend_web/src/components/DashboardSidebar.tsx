@@ -35,6 +35,7 @@ function ProviderBadge({ provider, size = 12 }: { provider: string; size?: numbe
 const navItems = [
   { href: '/dashboard', icon: '📊', label: '대시보드' },
   { href: '/consensus', icon: '🧭', label: '주간 컨센서스' },
+  { href: '/history', icon: '🎯', label: '예측 성과' },
   { href: '/trump', icon: '🏛️', label: '트럼프 임팩트' },
   { href: '/referrals', icon: '🎁', label: '초대 혜택' },
   { href: '/settings', icon: '⚙️', label: '설정' },
@@ -44,7 +45,7 @@ export function DashboardSidebar({ user, provider }: DashboardSidebarProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden lg:flex w-64 border-r border-white/5 bg-white/[0.01] flex-col p-6 shrink-0">
+    <aside className="hidden lg:flex w-64 border-r border-white/5 bg-white/[0.01] flex-col p-6 shrink-0 sticky top-0 h-screen">
       <div className="flex items-center gap-2 mb-12">
         <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">
           S

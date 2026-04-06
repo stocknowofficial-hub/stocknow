@@ -100,7 +100,11 @@ async def _push_macro(items: list[dict]):
                         f"VIX={vix['value'] if vix else '-'} ({vix['label'] if vix else '-'})"
                     )
                 else:
-                    logger.warning(f"⚠️ [MacroWatcher] 저장 실패 HTTP {resp.status}")
+                    try:
+                        body = await resp.text()
+                    except Exception:
+                        body = "(body read failed)"
+                    logger.warning(f"⚠️ [MacroWatcher] 저장 실패 HTTP {resp.status} — {body}")
     except Exception as e:
         logger.error(f"❌ [MacroWatcher] push 실패: {e}")
 

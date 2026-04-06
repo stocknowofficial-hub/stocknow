@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 
 const API_base = "http://localhost:8000"; // localhost (or use env var in real deploy)
 
@@ -214,7 +215,12 @@ export default function AdminPage() {
 
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col items-center py-10">
-            <h1 className="text-4xl font-extrabold mb-8 text-indigo-800 tracking-tight">🛡️ Reason Hunter Admin (Manual Save)</h1>
+            <h1 className="text-4xl font-extrabold mb-4 text-indigo-800 tracking-tight">🛡️ Reason Hunter Admin (Manual Save)</h1>
+            <div className="flex gap-3 mb-6">
+                <Link href="/admin/analyze" className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+                    📄 리포트 수동 분석
+                </Link>
+            </div>
 
             <div className="bg-white shadow-xl rounded-xl p-8 w-full max-w-7xl transition-all hover:shadow-2xl">
                 {/* 🛠️ 컨트롤 패널 */}

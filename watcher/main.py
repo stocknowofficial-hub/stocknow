@@ -19,6 +19,8 @@ from watcher.tasks.whale_watcher_us import run_whale_watcher_us # 🐳 Whale Hun
 from watcher.tasks.whale_watcher_kr import run_whale_watcher_kr # 🐳 K-Whale Hunter
 from watcher.tasks.prediction_price_updater import run_prediction_price_updater # 💹 Price Updater
 from watcher.tasks.macro_watcher import run_macro_watcher # 📊 Macro Signals
+from watcher.tasks.consensus_summary_watcher import run_consensus_summary_watcher # 🧠 AI 주간 요약
+from watcher.tasks.wallstreet_watcher import run_wallstreet_watcher # 📈 월가 컨센서스
 from common.logger import setup_logger # ✅ Logger Import
 
 logger = setup_logger("Watcher", "logs/watcher", "watcher.log")
@@ -114,6 +116,12 @@ async def main():
 
         # 📊 매크로 지표 수집 (30분 주기)
         run_macro_watcher(),
+
+        # 🧠 AI 주간 요약 생성 (6시간 주기)
+        run_consensus_summary_watcher(),
+
+        # 📈 월가 컨센서스 수집 (24시간 주기)
+        run_wallstreet_watcher(),
 
         # 🔄 스케줄러
         run_scheduled_restarter()

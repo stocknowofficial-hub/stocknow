@@ -174,8 +174,11 @@ class GeminiSearchPro:
                 )
                 return response
             
-            # Run in executor
-            response = await loop.run_in_executor(None, upload_and_generate)
+            # Run in executor (2.5-flash thinking model은 응답이 느릴 수 있어 240초 타임아웃)
+            response = await asyncio.wait_for(
+                loop.run_in_executor(None, upload_and_generate),
+                timeout=240.0
+            )
             
             if response and response.text:
                 result_text = response.text.strip()
@@ -219,6 +222,9 @@ class GeminiSearchPro:
                     "sectors": sectors,
                     "topics": topics
                 }
+        except asyncio.TimeoutError:
+            print(f"⏰ [Gemini Pro] 리포트 파일 분석 타임아웃 (240s): [{source}] {title}")
+            return None
         except Exception as e:
             print(f"❌ [Gemini Pro] 리포트 파일 분석 실패: {e}")
             return None

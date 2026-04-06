@@ -409,7 +409,7 @@ async def broadcast_message(bot, message_data):
                     text_free = text_vip 
                 else:
                     # VIP: Full Analysis
-                    text_vip = f"💡 [AI 심층분석] {name}\n------------------------------\n{market_info}------------------------------\n{summary}\n------------------------------\n{judgment_line}🔗 [{link_label}]({link})\n"
+                    text_vip = f"💡 [AI 심층분석] {name}\n------------------------------\n{market_info}------------------------------\n{summary}\n------------------------------\n🔗 [{link_label}]({link})\n"
                     
                     # Free Channel Logic
                     if "pdf" in link.lower() or "리포트" in name or "Report" in name:
@@ -507,7 +507,7 @@ async def broadcast_message(bot, message_data):
              # 📊 Dashboard Link Update
              title = message_data.get('title', 'Whale Dashboard')
              link = message_data.get('link', '')
-             
+
              text_body = (
                  f"📊 [{title}] 실시간 업데이트\n"
                  f"------------------------------\n"
@@ -517,6 +517,12 @@ async def broadcast_message(bot, message_data):
              )
              text_vip = text_body
              text_free = text_body
+
+        elif msg_type == "MARKET_LINK":
+            # 🏦 수급 동향 링크 메시지 (pre-formatted)
+            text_body = message_data.get('message', '')
+            text_vip = text_body
+            text_free = text_body
 
         # --------------------------------------------------------------------------
         # 2. 전송 로직 (Dual Channel)

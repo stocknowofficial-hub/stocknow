@@ -15,6 +15,14 @@ interface TradeSetup {
   target?: string;
 }
 
+interface WallStreetData {
+  recommendation: string;
+  target_price: number | null;
+  current_price: number | null;
+  analyst_count: number;
+  upside_pct: number | null;
+}
+
 interface ReportItem {
   id: string;
   source: string;
@@ -81,7 +89,35 @@ function RoleBadge({ role }: { role?: string }) {
   return null;
 }
 
-function AccordionItem({ r }: { r: ReportItem }) {
+function fmtTargetPrice(code: string | null, price: number): string {
+  if (code && /^\d{6}$/.test(code)) return `${Math.round(price).toLocaleString()}원`;
+  return `$${price.toFixed(0)}`;
+}
+
+function WsBadge({ ws, targetCode }: { ws: WallStreetData; targetCode: string | null }) {
+  const recColor =
+    ws.recommendation === 'Strong Buy' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
+    ws.recommendation === 'Buy' ? 'text-emerald-300 bg-emerald-500/8 border-emerald-500/20' :
+    ws.recommendation === 'Hold' ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' :
+    'text-rose-400 bg-rose-500/10 border-rose-500/30';
+  const upsideColor = ws.upside_pct && ws.upside_pct > 0 ? 'text-emerald-400' : 'text-rose-400';
+
+  return (
+    <div className="mt-1 flex items-center gap-2 flex-wrap">
+      <span className="text-[9px] text-blue-400 font-bold bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded">🏦 컨센서스</span>
+      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${recColor}`}>{ws.recommendation}</span>
+      {ws.target_price && (
+        <span className={`text-[9px] font-mono ${upsideColor}`}>
+          목표 {fmtTargetPrice(targetCode, ws.target_price)}
+          {ws.upside_pct !== null && ` (${ws.upside_pct > 0 ? '+' : ''}${ws.upside_pct}%)`}
+        </span>
+      )}
+      {ws.analyst_count > 0 && <span className="text-[9px] text-gray-600">{ws.analyst_count}명 커버리지</span>}
+    </div>
+  );
+}
+
+function AccordionItem({ r, wsMap }: { r: ReportItem; wsMap: Record<string, WallStreetData> }) {
   const [open, setOpen] = useState(false);
   const points: string[] | null = r.key_points ? (() => { try { return JSON.parse(r.key_points!); } catch { return null; } })() : null;
   const relatedStocks: RelatedStock[] | null = r.related_stocks ? (() => { try { return JSON.parse(r.related_stocks!); } catch { return null; } })() : null;
@@ -106,6 +142,9 @@ function AccordionItem({ r }: { r: ReportItem }) {
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
             <span className="text-xs font-semibold text-gray-300">{r.source}</span>
             <ConfBadge conf={r.confidence} />
+            <span className="text-[10px] text-gray-600">
+              {(() => { const d = new Date(r.created_at); return `${d.getMonth()+1}/${d.getDate()}`; })()}
+            </span>
             <DaysLeft expires={r.expires_at} />
             {/* 접힌 상태에서 action 배지 미리 표시 */}
             {!open && r.action && (() => {
@@ -172,13 +211,14 @@ function AccordionItem({ r }: { r: ReportItem }) {
           {/* 관련 종목 */}
           {relatedStocks && relatedStocks.length > 0 && (
             <div>
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">관련 종목</p>
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">함께 볼 종목 (참고용)</p>
               <div className="space-y-2">
                 {relatedStocks.map((s, i) => {
                   const isKr = /^\d{6}$/.test(s.code);
                   const href = isKr
                     ? `https://finance.naver.com/item/main.naver?code=${s.code}`
                     : `https://finance.naver.com/world/sise.naver?symbol=${s.code}`;
+                  const ws = wsMap[s.code?.toUpperCase()];
                   return (
                     <div key={i} className="flex items-start gap-2">
                       <RoleBadge role={s.role} />
@@ -189,6 +229,7 @@ function AccordionItem({ r }: { r: ReportItem }) {
                           <span className="text-[10px] text-gray-600">{s.code}</span>
                         </a>
                         <p className="text-[10px] text-gray-500 mt-0.5">{s.reason}</p>
+                        {ws && <WsBadge ws={ws} targetCode={s.code} />}
                       </div>
                     </div>
                   );
@@ -221,10 +262,10 @@ function AccordionItem({ r }: { r: ReportItem }) {
   );
 }
 
-export function ReportAccordion({ reports }: { reports: ReportItem[] }) {
+export function ReportAccordion({ reports, wsMap = {} }: { reports: ReportItem[]; wsMap?: Record<string, WallStreetData> }) {
   return (
     <div className="space-y-0">
-      {reports.map(r => <AccordionItem key={r.id} r={r} />)}
+      {reports.map(r => <AccordionItem key={r.id} r={r} wsMap={wsMap} />)}
     </div>
   );
 }

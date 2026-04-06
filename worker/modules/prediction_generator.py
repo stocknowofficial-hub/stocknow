@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import aiohttp
 import requests as req_sync
 from datetime import datetime, timezone, timedelta
@@ -12,120 +13,134 @@ from common.config import settings
 # ─────────────────────────────────────────
 
 REPORT_PREDICTION_PROMPT = """
-다음 증권사 리포트를 분석해서 시장 예측 카드를 JSON으로 만들어줘.
+다음 증권사 리포트를 분석해서, 핵심 근거마다 영향받는 종목별 예측 카드 배열을 만들어줘.
+ETF 수준뿐 아니라 실제로 사고팔 수 있는 개별 종목까지 최대한 많이 뽑아줘.
 
 리포트 출처: {source}
 리포트 내용:
 {text}
 
 규칙:
-- 구체적이고 검증 가능한 예측 1개만 생성
-- "시장 불확실성", "변동성 확대" 같이 모호한 예측은 금지
-- target_code: 아래 ETF/종목 코드 목록에서 가장 적합한 것 선택. 없으면 null.
-- timeframe: 7일 / 14일 / 30일 중 리포트 내용에 가장 적합한 것 선택
-- confidence: 리포트에서 강하게 주장할수록 high, 가능성 언급이면 low
+- 리포트의 핵심 근거(key insight)마다 영향받는 대표 종목/ETF 각각 1장씩 카드 생성 (최대 5개)
+- 같은 근거로 여러 종목이 영향받더라도 가장 대표적인 종목 1개만 선택 (중복 근거 카드 금지)
+- 방향이 up 또는 down으로 명확한 것만 포함. sideways(횡보/영향 미미/불확실)는 절대 금지
+- "시장 불확실성", "변동성 확대" 같이 모호한 예측 금지
+- 한국 ETF는 6자리 코드, 미국 개별주는 티커(XOM, TLT, SPY 등)를 target_code로 사용
+- timeframe: 7일 / 14일 / 30일 중 근거에 맞게 선택
+- confidence: 리포트에서 강하게 주장 → high, 가능성 언급 → medium, 간접 영향 → low
+- target 이름은 반드시 풀네임 사용 (예: "반도체" → "KODEX 반도체", "원유" → "KODEX WTI원유선물")
+- key_points는 반드시 리포트에서 인용한 구체적 수치·사실 포함 (예: "코스피 선행 PER 8배 하회", "WTI 100달러 평균 유지 140일"). 추상적 표현("불확실성 증가" 등) 금지
+- related_stocks의 role이 "매도"인 경우 reason에 반드시 메인 종목과의 관계(예: "섹터 로테이션 - 반도체 자금이 은행으로 이동") 명시
+- related_stocks는 가능하면 2개 이상 (메인 타겟이 ETF인 경우 해당 섹터 대표 개별 종목을 우선 포함)
+- 예: KODEX 건설 카드 → related_stocks에 현대건설(000720), GS건설(006360) 등 개별주 포함 권장
 
-[자주 쓰는 ETF/종목 코드 참고]
-- 코스피 지수: 069500 (KODEX 200)
-- 코스닥 지수: 229200 (KODEX 코스닥150)
-- 미국 S&P500: 379800 (KODEX 미국S&P500TR)
-- 미국 나스닥: 133690 (TIGER 미국나스닥100)
-- WTI 원유: 261220 (KODEX WTI원유선물(H))
-- 금(Gold): 132030 (KODEX 골드선물(H))
-- 방산: 490090 (KODEX K-방산)
-- 반도체: 091160 (KODEX 반도체)
-- 2차전지: 305720 (KODEX 2차전지산업)
-- 바이오: 244580 (KODEX 바이오)
-- 은행: 091170 (KODEX 은행)
-- 자동차: 091180 (KODEX 자동차)
-- 조선: 139220 (TIGER 조선TOP10)
-- 삼성전자: 005930
-- SK하이닉스: 000660
-- 현대차: 005380
+[한국 ETF 코드] — target 이름에 아래 풀네임 그대로 사용
+KODEX 200(코스피): 069500 / KODEX 코스닥150: 229200 / KODEX S&P500: 379800 / KODEX 나스닥100: 133690
+KODEX WTI원유선물: 261220 / KODEX 골드선물: 132030 / KODEX K-방산: 490090 / KODEX 반도체: 091160
+KODEX 2차전지: 305720 / KODEX 바이오: 244580 / KODEX 은행: 091170 / KODEX 자동차: 091180
+KODEX 조선: 139220 / KODEX 태양광: 403870 / 삼성전자: 005930 / SK하이닉스: 000660 / 현대차: 005380
 
-JSON만 출력 (설명 없이, 코드블록 없이):
-{{
-  "prediction": "[출처] 예측 대상 방향 전망 (예: '[키움증권] WTI 원유 단기 상승 전망')",
-  "direction": "up 또는 down 또는 sideways",
-  "target": "예측 대상 (예: 'WTI 원유', '반도체 섹터', '삼성전자')",
-  "target_code": "6자리 코드 또는 null",
-  "basis": "핵심 근거 한 줄 요약",
-  "key_points": [
-    "근거 1: 구체적 수치나 사실 포함 (예: '연준 점도표 상향 → 금리 인하 기대 후퇴')",
-    "근거 2: 구체적 수치나 사실 포함",
-    "근거 3: 구체적 수치나 사실 포함"
-  ],
-  "related_stocks": [
-    {{"name": "종목명 또는 ETF명", "code": "한국 종목은 6자리 코드(예: 005930), 미국 종목은 티커(예: NVDA)", "role": "매수 / 매도 / 헤지 중 하나", "reason": "왜 이 액션인지 한 줄"}},
-    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}},
-    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}}
-  ],
-  "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
-  "action_reason": "액션 추천 이유 한 줄 (예: '단기 조정 가능성 낮고 상승 모멘텀 유효')",
-  "trade_setup": {{
-    "entry": "진입 조건 (예: '이번 주 내 분할 매수', '5% 추가 하락 시 진입', '현재가 근처에서 즉시')",
-    "stop_loss": "손절 기준 (예: '-5% 이탈 시 손절', '전저점 하회 시')",
-    "target": "목표 수익 (예: '+8~10% 목표', '52주 고점 재도전')"
-  }},
-  "timeframe": 7,
-  "confidence": "high 또는 medium 또는 low"
-}}
+[미국 ETF/종목]
+- 채권: TLT(장기국채), IEF(중기국채), TIP(물가연동채)
+- 원유/에너지: USO(WTI원유), XOM(엑손모빌), CVX(쉐브론), OXY, COP
+- 금: GLD, IAU, GDX(금광주)
+- S&P500: SPY, VOO / 나스닥: QQQ / 소형주: IWM
+- 방산: LMT, RTX, GD, NOC
+- 사이버보안: PANW, CRWD, CHKP
+- 반도체: NVDA, AMD, AVGO, INTC, ASML
+- 빅테크: AAPL, MSFT, META, GOOGL, AMZN, TSLA
+- 금융: JPM, GS, BAC, BRK.B
+- 인버스/헤지: SH(S&P500 인버스), PSQ(나스닥 인버스), SQQQ
+
+JSON 배열만 출력 (설명 없이, 코드블록 없이):
+[
+  {{
+    "prediction": "[{source}] 구체적 예측 (예: '[BlackRock] 중동 확전 → 엑손모빌 단기 급등 전망')",
+    "direction": "up 또는 down",
+    "target": "종목명 또는 ETF명",
+    "target_code": "미국 티커(예: XOM) 또는 한국 6자리 코드(예: 261220)",
+    "basis": "이 종목이 영향받는 핵심 근거 한 줄 (리포트 내용과 직접 연결)",
+    "key_points": [
+      "리포트 핵심 주장: 구체적 수치나 사실 포함",
+      "이 종목이 수혜/피해받는 메커니즘",
+      "단기 시장 반응 예상"
+    ],
+    "related_stocks": [
+      {{"name": "같은 테마 유사 종목", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}},
+      {{"name": "헤지 또는 반대 포지션 종목", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}}
+    ],
+    "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
+    "action_reason": "이유 한 줄",
+    "trade_setup": {{
+      "entry": "진입 조건 (예: '이번 주 내 분할 매수', '현재가 근처 즉시')",
+      "stop_loss": "손절 기준 (예: '-5% 이탈 시', '전저점 하회 시')",
+      "target": "목표 (예: '+10~15%', '52주 고점 재도전')"
+    }},
+    "timeframe": 7,
+    "confidence": "high 또는 medium 또는 low"
+  }}
+]
 """
 
 TRUMP_PREDICTION_PROMPT = """
-트럼프의 Truth Social 게시글을 분석해서 한국/미국 주식시장 영향을 예측해줘.
+트럼프의 Truth Social 게시글을 분석해서, 영향받을 섹터별 대표 종목 각각에 대한 예측 카드 배열을 만들어줘.
+ETF 수준이 아니라, 실제로 매수/매도할 만한 개별 종목 또는 섹터 ETF 단위로 하나씩 카드를 만들어.
 
 게시글 내용:
 {text}
 
 규칙:
 - 주식/경제/정책과 무관한 게시글(음식, 스포츠, 개인 일상 등)이면: {{"skip": true}} 만 반환
-- 관세 언급 → 피해 업종(수출주: 자동차/반도체) 또는 수혜 업종 분석
-- 금리/달러/국채 언급 → 영향 자산 분석
-- 지정학/전쟁/외교 언급 → 방산/원유 섹터 분석
-- target_code: 아래 ETF 코드 목록에서 가장 적합한 것 선택. 없으면 null.
-- timeframe: 주로 7일 또는 14일
+- 영향받는 섹터마다 대표 종목 1~2개씩, 전체 최대 6개 카드
+- 방향이 up 또는 down으로 명확한 것만 포함. sideways(횡보/영향 미미/불확실) 절대 금지
+- target_code: 한국 ETF는 6자리 숫자 코드, 미국 개별주는 티커(예: LMT, XOM, PANW)
+- 예시 (이란 확전 시나리오):
+  [{{"target": "록히드 마틴", "target_code": "LMT", "direction": "up"}},
+   {{"target": "제너럴 다이내믹스", "target_code": "GD", "direction": "up"}},
+   {{"target": "엑슨모빌", "target_code": "XOM", "direction": "up"}},
+   {{"target": "팔로알토 네트웍스", "target_code": "PANW", "direction": "up"}},
+   {{"target": "K-방산 ETF", "target_code": "490090", "direction": "up"}},
+   {{"target": "델타항공", "target_code": "DAL", "direction": "down"}}]
 
-[ETF 코드 참고]
-- 코스피 지수: 069500 (KODEX 200)
-- 미국 S&P500: 379800 (KODEX 미국S&P500TR)
-- 미국 나스닥: 133690 (TIGER 미국나스닥100)
-- WTI 원유: 261220 (KODEX WTI원유선물(H))
-- 금(Gold): 132030 (KODEX 골드선물(H))
-- 방산: 490090 (KODEX K-방산)
-- 반도체: 091160 (KODEX 반도체)
-- 2차전지: 305720 (KODEX 2차전지산업)
-- 자동차: 091180 (KODEX 자동차)
-- 조선: 139220 (TIGER 조선TOP10)
-- 삼성전자: 005930 / SK하이닉스: 000660 / 현대차: 005380
+[한국 ETF 코드]
+코스피: 069500 / 코스닥: 229200 / S&P500: 379800 / 나스닥: 133690
+WTI원유: 261220 / 금: 132030 / K-방산: 490090 / 반도체: 091160
+2차전지: 305720 / 자동차: 091180 / 조선: 139220
 
-JSON만 출력 (설명 없이, 코드블록 없이):
-{{
-  "prediction": "[트럼프] 예측 대상 방향 전망 (예: '[트럼프] 자동차 관세 → 현대차 단기 하락 전망')",
-  "direction": "up 또는 down 또는 sideways",
-  "target": "예측 대상 (섹터명 or 자산명)",
-  "target_code": "6자리 코드 또는 null",
-  "basis": "핵심 근거 한 줄 (트럼프 발언 요약 포함)",
-  "key_points": [
-    "트럼프 발언 핵심 요약",
-    "영향받는 업종/자산 분석",
-    "단기 시장 반응 예상"
-  ],
-  "related_stocks": [
-    {{"name": "종목명 또는 ETF명", "code": "한국 종목은 6자리 코드(예: 005930), 미국 종목은 티커(예: NVDA)", "role": "매수 / 매도 / 헤지 중 하나", "reason": "왜 이 액션인지 한 줄"}},
-    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}},
-    {{"name": "종목명 또는 ETF명", "code": "한국 코드 또는 미국 티커", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}}
-  ],
-  "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
-  "action_reason": "액션 추천 이유 한 줄",
-  "trade_setup": {{
-    "entry": "진입 조건 (예: '이번 주 내 분할 매수', '현재가 근처에서 즉시')",
-    "stop_loss": "손절 기준 (예: '-5% 이탈 시 손절')",
-    "target": "목표 수익 (예: '+8~10% 목표')"
-  }},
-  "timeframe": 7,
-  "confidence": "high 또는 medium 또는 low"
-}}
+[미국 주요 방산주] LMT, RTX, GD, NOC, BA, LHX
+[미국 주요 에너지주] XOM, CVX, OXY, COP, SLB
+[미국 주요 사이버보안주] PANW, CRWD, CHKP, FTNT, ZS
+[미국 주요 항공주] DAL, UAL, LUV, AAL
+[미국 주요 금융주] JPM, GS, BAC, C
+[미국 빅테크] NVDA, AAPL, MSFT, META, GOOGL, AMZN, TSLA
+
+JSON 배열만 출력 (설명 없이, 코드블록 없이):
+[
+  {{
+    "prediction": "[트럼프] 구체적 예측 (예: '[트럼프] 이란 지상군 투입 → 록히드 마틴 단기 급등 전망')",
+    "direction": "up 또는 down",
+    "target": "종목명 또는 ETF명 (예: 록히드 마틴, 엑슨모빌, K-방산 ETF)",
+    "target_code": "미국 티커(예: LMT) 또는 한국 6자리 코드(예: 490090)",
+    "basis": "핵심 근거 한 줄 (트럼프 발언과의 연결고리 포함)",
+    "key_points": [
+      "트럼프 발언 핵심: ...",
+      "이 종목이 수혜/피해받는 구체적 이유",
+      "예상 시장 반응"
+    ],
+    "related_stocks": [
+      {{"name": "같은 섹터 유사 종목", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}}
+    ],
+    "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
+    "action_reason": "이유 한 줄",
+    "trade_setup": {{
+      "entry": "진입 조건 (예: '장 개시 후 상승 확인 시 매수', '현재가 근처 즉시')",
+      "stop_loss": "손절 기준 (예: '-5% 이탈 시')",
+      "target": "목표 (예: '+10~15%')"
+    }},
+    "timeframe": 7,
+    "confidence": "high 또는 medium 또는 low"
+  }}
+]
 """
 
 # ─────────────────────────────────────────
@@ -154,48 +169,88 @@ def fetch_current_price(code: str) -> float | None:
 
 
 # ─────────────────────────────────────────
-# PDF 텍스트 추출
-# ─────────────────────────────────────────
-
-def extract_pdf_text(file_path: str, max_chars: int = 4000) -> str:
-    """PDF에서 텍스트 추출 (pymupdf 사용)"""
-    try:
-        import fitz  # pymupdf
-        doc = fitz.open(file_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-            if len(text) >= max_chars:
-                break
-        doc.close()
-        return text[:max_chars].strip()
-    except Exception as e:
-        print(f"⚠️ [PredGen] PDF 추출 실패: {e}")
-        return ""
-
-# ─────────────────────────────────────────
-# Gemini 호출
+# Gemini File API — PDF 직접 분석
 # ─────────────────────────────────────────
 
 def _call_gemini_sync(client, prompt: str) -> dict | None:
-    """Gemini API 동기 호출 → JSON 파싱"""
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.1,
+    """
+    텍스트 프롬프트만으로 Gemini 호출 (트럼프 게시글, 브리핑 등).
+    """
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.4,
+            )
         )
-    )
-    if not response or not response.text:
+        if not response or not response.text:
+            return None
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
+    except Exception as e:
+        print(f"⚠️ [PredGen] _call_gemini_sync 실패: {e}")
         return None
-    text = response.text.strip()
-    # 코드블록 제거 (혹시 포함된 경우)
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text.strip())
+
+
+def _call_gemini_with_pdf(client, file_path: str, prompt: str) -> dict | None:
+    """
+    PDF 파일을 Gemini File API로 업로드한 뒤 직접 분석.
+    텍스트 PDF, 이미지 스캔본 모두 동작.
+    """
+    uploaded = None
+    try:
+        print(f"📤 [PredGen] Gemini에 PDF 업로드 중: {os.path.basename(file_path)}")
+        with open(file_path, 'rb') as f:
+            uploaded = client.files.upload(
+                file=f,
+                config=types.UploadFileConfig(
+                    mime_type='application/pdf',
+                    display_name=os.path.basename(file_path),
+                )
+            )
+        print(f"✅ [PredGen] 업로드 완료: {uploaded.name}")
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[
+                types.Content(parts=[
+                    types.Part(file_data=types.FileData(
+                        file_uri=uploaded.uri,
+                        mime_type='application/pdf',
+                    )),
+                    types.Part(text=prompt),
+                ])
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.4,
+            )
+        )
+
+        if not response or not response.text:
+            return None
+
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
+
+    finally:
+        # 업로드한 파일 Gemini 서버에서 정리
+        if uploaded:
+            try:
+                client.files.delete(name=uploaded.name)
+                print(f"🗑️ [PredGen] Gemini 파일 삭제: {uploaded.name}")
+            except Exception:
+                pass
 
 # ─────────────────────────────────────────
 # D1 저장
@@ -260,20 +315,14 @@ async def generate_prediction_from_report(source: str, source_desc: str, source_
 
     print(f"🔮 [PredGen] 리포트 분석 시작: {source_desc}")
 
-    # 1. PDF 텍스트 추출
-    text = extract_pdf_text(file_path)
-    if not text:
-        print(f"⚠️ [PredGen] PDF 텍스트 추출 실패: {file_path}")
-        return
-
-    # 2. Gemini 호출
-    prompt = REPORT_PREDICTION_PROMPT.format(source=source, text=text)
+    # Gemini File API — PDF 직접 업로드 후 분석 (텍스트/이미지 스캔본 모두 지원)
+    prompt = REPORT_PREDICTION_PROMPT.format(source=source, text="(PDF 파일 첨부 — 전체 내용을 직접 읽고 분석)")
     try:
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         loop = asyncio.get_running_loop()
         card = await asyncio.wait_for(
-            loop.run_in_executor(None, _call_gemini_sync, client, prompt),
-            timeout=30.0
+            loop.run_in_executor(None, _call_gemini_with_pdf, client, file_path, prompt),
+            timeout=180.0  # PDF 업로드 포함이므로 타임아웃 여유 있게
         )
     except asyncio.TimeoutError:
         print(f"⚠️ [PredGen] Gemini 타임아웃: {source_desc}")
@@ -282,14 +331,80 @@ async def generate_prediction_from_report(source: str, source_desc: str, source_
         print(f"⚠️ [PredGen] Gemini 오류: {e}")
         return
 
-    if not card or card.get("skip"):
+    if not card or (isinstance(card, dict) and card.get("skip")):
         print(f"💨 [PredGen] 예측 생성 스킵: {source_desc}")
         return
 
-    print(f"📋 [PredGen] 예측 생성됨: {card.get('prediction')} (신뢰도: {card.get('confidence')})")
+    # 단일 dict면 배열로 감싸기 (하위 호환)
+    cards = card if isinstance(card, list) else [card]
 
-    # 3. D1 저장
-    await _post_prediction(card, source, source_desc, source_url)
+    # 2. sideways 제외
+    cards = [c for c in cards if c.get("direction", "").lower() in ("up", "down")]
+
+    # 3. 같은 (target_code, direction) 카드 합치기
+    # — 같은 종목에 대한 여러 근거를 1개 카드로 통합
+    CONF_RANK = {"high": 3, "medium": 2, "low": 1}
+
+    merged: dict[tuple, dict] = {}
+    for c in cards:
+        key = (c.get("target_code") or c.get("target", ""), c.get("direction", "").lower())
+        if key not in merged:
+            merged[key] = dict(c)
+            continue
+        base = merged[key]
+        # key_points 병합 (중복 제거, 최대 6개)
+        existing_kp = base.get("key_points") or []
+        new_kp = c.get("key_points") or []
+        combined_kp = existing_kp + [p for p in new_kp if p not in existing_kp]
+        base["key_points"] = combined_kp[:6]
+        # basis: 더 높은 신뢰도 카드의 basis 사용, 또는 합치기
+        base_conf = CONF_RANK.get(str(base.get("confidence", "")).lower(), 0)
+        new_conf  = CONF_RANK.get(str(c.get("confidence", "")).lower(), 0)
+        if new_conf > base_conf:
+            base["prediction"]  = c["prediction"]
+            base["basis"]       = c.get("basis", base.get("basis"))
+            base["confidence"]  = c["confidence"]
+            base["trade_setup"] = c.get("trade_setup", base.get("trade_setup"))
+            base["timeframe"]   = max(base.get("timeframe", 7), c.get("timeframe", 7))
+        # related_stocks 병합 (코드 기준 중복 제거, 최대 4개)
+        existing_rs = {r.get("code"): r for r in (base.get("related_stocks") or [])}
+        for r in (c.get("related_stocks") or []):
+            if r.get("code") not in existing_rs:
+                existing_rs[r["code"]] = r
+        base["related_stocks"] = list(existing_rs.values())[:4]
+
+    merged_cards = list(merged.values())
+
+    # 4. prediction 텍스트 기준 추가 중복 제거
+    # — 같은 예측 문장인데 target_code만 다른 카드는 신뢰도 높은 것 1개만 유지
+    seen_predictions: dict[str, dict] = {}
+    for c in merged_cards:
+        pred_key = c.get("prediction", "").strip()
+        if pred_key not in seen_predictions:
+            seen_predictions[pred_key] = c
+        else:
+            existing_conf = CONF_RANK.get(str(seen_predictions[pred_key].get("confidence", "")).lower(), 0)
+            new_conf = CONF_RANK.get(str(c.get("confidence", "")).lower(), 0)
+            if new_conf > existing_conf:
+                seen_predictions[pred_key] = c
+    deduped_cards = list(seen_predictions.values())
+
+    # 5. 최대 5개 제한 (신뢰도 높은 순)
+    deduped_cards.sort(key=lambda c: CONF_RANK.get(str(c.get("confidence", "")).lower(), 0), reverse=True)
+    deduped_cards = deduped_cards[:5]
+
+    print(f"🔀 [PredGen] 카드 통합: {len(cards)}개 → {len(merged_cards)}개 (target_code별) → {len(deduped_cards)}개 (중복 제거·최대5)")
+    merged_cards = deduped_cards
+
+    # 6. D1 저장
+    saved = 0
+    for card_idx, c in enumerate(merged_cards):
+        unique_url = f"{source_url}#card{card_idx}"
+        print(f"📋 [PredGen] 예측 생성됨: {c.get('prediction')} (신뢰도: {c.get('confidence')})")
+        await _post_prediction(c, source, source_desc, unique_url)
+        saved += 1
+
+    print(f"✅ [PredGen] 리포트 예측 저장 완료: {saved}개 (sideways 제외, 중복 통합)")
 
 
 def _format_et(utc_iso: str | None) -> str:
@@ -320,9 +435,94 @@ def _format_et(utc_iso: str | None) -> str:
         return utc_iso[:16]
 
 
+BRIEFING_PREDICTION_PROMPT = """
+다음 시장 브리핑을 분석해서 단기(1~2일) 예측 카드를 JSON으로 만들어줘.
+
+시장: {market}
+브리핑 종류: {subtype}
+브리핑 내용:
+{text}
+
+규칙:
+- 브리핑에서 가장 명확한 방향성이 있는 자산 1개만 선택
+- 예측 기간은 timeframe: 2 (2일) 고정
+- 모호하거나 방향성 불분명하면: {{"skip": true}} 반환
+- target_code: 아래 코드 목록에서 가장 적합한 것 선택
+
+[ETF/종목 코드]
+- 코스피: 069500 / 코스닥: 229200 / S&P500: 379800 / 나스닥: 133690
+- WTI원유: 261220 / 금: 132030 / 방산: 490090 / 반도체: 091160
+- 2차전지: 305720 / 바이오: 244580 / 은행: 091170 / 자동차: 091180
+- 삼성전자: 005930 / SK하이닉스: 000660 / 현대차: 005380
+- 미국 티커: NVDA, AAPL, MSFT, META, GOOGL, AMZN, TSLA 등
+
+JSON만 출력 (설명 없이):
+{{
+  "prediction": "[브리핑] 예측 요약 (예: '[KR마감] 반도체 단기 강세 전망')",
+  "direction": "up 또는 down 또는 sideways",
+  "target": "예측 대상 자산명",
+  "target_code": "코드 또는 null",
+  "basis": "핵심 근거 한 줄",
+  "key_points": ["근거1", "근거2"],
+  "related_stocks": [],
+  "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
+  "action_reason": "이유 한 줄",
+  "trade_setup": {{
+    "entry": "진입 조건",
+    "stop_loss": "손절 기준",
+    "target": "목표"
+  }},
+  "timeframe": 2,
+  "confidence": "high 또는 medium 또는 low"
+}}
+"""
+
+
+async def generate_prediction_from_briefing(market: str, subtype: str, briefing_text: str):
+    """
+    시장 브리핑 텍스트 → Gemini 분석 → 단기(2일) 예측 카드 생성 → D1 저장
+    market: 'KR' | 'US'
+    subtype: 'OPENING' | 'MID' | 'CLOSE'
+    """
+    if not settings.GOOGLE_API_KEY or not briefing_text:
+        return
+
+    subtype_label = {"OPENING": "개장", "MID": "장중", "CLOSE": "마감"}.get(subtype, subtype)
+    market_label = "한국장" if market == "KR" else "미국장"
+    source_desc = f"{market_label} {subtype_label} 브리핑 ({datetime.now().strftime('%Y-%m-%d')})"
+
+    print(f"🔮 [PredGen] 브리핑 예측 분석 시작: {source_desc}")
+
+    prompt = BRIEFING_PREDICTION_PROMPT.format(
+        market=market_label, subtype=subtype_label, text=briefing_text[:3000]
+    )
+    try:
+        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+        loop = asyncio.get_running_loop()
+        card = await asyncio.wait_for(
+            loop.run_in_executor(None, _call_gemini_sync, client, prompt),
+            timeout=30.0
+        )
+    except asyncio.TimeoutError:
+        print(f"⚠️ [PredGen] Gemini 타임아웃: {source_desc}")
+        return
+    except Exception as e:
+        print(f"⚠️ [PredGen] Gemini 오류: {e}")
+        return
+
+    if not card or card.get("skip"):
+        print(f"💨 [PredGen] 브리핑 예측 스킵: {source_desc}")
+        return
+
+    print(f"📋 [PredGen] 브리핑 예측 생성됨: {card.get('prediction')}")
+    source = f"briefing_{market.lower()}"
+    await _post_prediction(card, source, source_desc, "")
+
+
 async def generate_prediction_from_trump(post_text: str, post_url: str, post_time: str):
     """
-    트럼프 Truth Social 게시글 → Gemini 분석 → 예측 카드 생성 → D1 저장
+    트럼프 Truth Social 게시글 → Gemini 분석 → 섹터별 예측 카드 배열 생성 → D1 저장
+    sideways(횡보) 예측은 저장하지 않음
     """
     if not settings.GOOGLE_API_KEY:
         return
@@ -333,7 +533,7 @@ async def generate_prediction_from_trump(post_text: str, post_url: str, post_tim
     try:
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         loop = asyncio.get_running_loop()
-        card = await asyncio.wait_for(
+        result = await asyncio.wait_for(
             loop.run_in_executor(None, _call_gemini_sync, client, prompt),
             timeout=30.0
         )
@@ -344,11 +544,24 @@ async def generate_prediction_from_trump(post_text: str, post_url: str, post_tim
         print(f"⚠️ [PredGen] Gemini 오류 (트럼프): {e}")
         return
 
-    if not card or card.get("skip"):
+    # skip 신호 처리 (dict로 반환된 경우)
+    if not result or (isinstance(result, dict) and result.get("skip")):
         print(f"💨 [PredGen] 트럼프 게시글 — 경제 무관 스킵")
         return
 
-    print(f"📋 [PredGen] 트럼프 예측 생성됨: {card.get('prediction')}")
+    # 단일 dict면 배열로 감싸기 (하위 호환)
+    cards = result if isinstance(result, list) else [result]
 
     source_desc = f"Trump Truth Social ({_format_et(post_time)})"
-    await _post_prediction(card, "trump", source_desc, post_url)
+    saved = 0
+    for card in cards:
+        direction = card.get("direction", "").lower()
+        # sideways / 방향 불명확 예측 저장 금지
+        if direction not in ("up", "down"):
+            print(f"💨 [PredGen] 트럼프 예측 스킵 (sideways): {card.get('target')}")
+            continue
+        print(f"📋 [PredGen] 트럼프 예측 생성됨: {card.get('prediction')}")
+        await _post_prediction(card, "trump", source_desc, post_url)
+        saved += 1
+
+    print(f"✅ [PredGen] 트럼프 예측 저장 완료: {saved}개 (sideways 제외)")

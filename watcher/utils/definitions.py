@@ -71,20 +71,21 @@ def setup_telegraph_account(telegraph_info):
 
 # watcher/utils/definitions.py 의 update_telegraph_board 함수 수정
 
-def update_telegraph_board(telegraph_info, title, stock_list):
+def update_telegraph_board(telegraph_info, title, stock_list, subtitle: str = "실시간 급등/급락 종목 현황 (±3% 이상)"):
     """
     현황판 업데이트
     :param telegraph_info: 메인 파일에서 관리하는 상태 딕셔너리
+    :param subtitle: 보드 상단 부제목 (보드 종류별로 다르게 지정)
     """
     if not telegraph_info["access_token"]:
         if not setup_telegraph_account(telegraph_info): return None
 
     current_time_str = datetime.now().strftime("%H:%M:%S")
     formatted_date = datetime.now().strftime("%m월 %d일 %p %I:%M 등록").replace("PM", "오후").replace("AM", "오전")
-    
+
     content_json = [
         {"tag": "p", "children": [f"• {formatted_date}"]},
-        {"tag": "h3", "children": ["실시간 급등/급락 종목 현황 (±3% 이상)"]},
+        {"tag": "h3", "children": [subtitle]},
         {"tag": "p", "children": [f"🕒 최종 업데이트: {current_time_str}"]}
     ]
     
@@ -493,6 +494,116 @@ def fetch_overseas_time_sales(token, code, excd="NAS"):
         return []
 
 # =========================================================
+# 🏦 [수급 동향] 외국인/기관계 매매종목 가집계 랭킹
+# =========================================================
+
+def fetch_kr_frgn_inst_rank(token, cls_code="1"):
+    """
+    [REST] 국내기관_외국인 매매종목가집계 (FHPTJ04400000)
+    - cls_code: "1"=외국인, "2"=기관계
+    - 하루 4회 업데이트: 09:30 / 11:20 / 13:20 / 14:30
+    - 반환: 순매수 상위 종목 리스트 (금액 정렬)
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHPTJ04400000",
+        "custtype": "P"
+    }
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "V",
+        "FID_COND_SCR_DIV_CODE": "16449",
+        "FID_INPUT_ISCD": "0000",        # 전체
+        "FID_DIV_CLS_CODE": "1",         # 금액 정렬
+        "FID_RANK_SORT_CLS_CODE": "0",   # 순매수 상위
+        "FID_ETC_CLS_CODE": cls_code,    # 1=외국인, 2=기관계
+    }
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        if res.status_code == 200 and 'output' in data:
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [수급동향] 외국인/기관 랭킹 조회 실패 (cls={cls_code}): {e}")
+        return []
+
+
+def update_telegraph_frgn_inst(telegraph_info, frgn_top10, inst_top10):
+    """
+    외국인/기관 수급 동향 telegra.ph 보드 업데이트
+    """
+    if not telegraph_info["access_token"]:
+        if not setup_telegraph_account(telegraph_info):
+            return None
+
+    now = datetime.now()
+    date_str = now.strftime("%m월 %d일 %H:%M")
+
+    def make_rows(items, label_emoji):
+        rows = []
+        for i, item in enumerate(items[:10], 1):
+            name = item.get('hts_kor_isnm') or item.get('name', '')
+            try:
+                price = int(str(item.get('stck_prpr', 0)).replace(',', ''))
+            except:
+                price = 0
+            try:
+                rate = float(item.get('prdy_ctrt', 0))
+            except:
+                rate = 0.0
+            # 금액: frgn_ntby_tr_pbmn 또는 orgn_ntby_tr_pbmn (단위: 백만원)
+            try:
+                amt_mil = int(str(item.get('frgn_ntby_tr_pbmn') or item.get('orgn_ntby_tr_pbmn') or 0).replace(',', ''))
+            except:
+                amt_mil = 0
+            amt_eok = amt_mil / 100  # 백만원 → 억원
+
+            rate_emoji = "🔥" if rate > 0 else ("💧" if rate < 0 else "➖")
+            amt_sign = "+" if amt_eok >= 0 else ""
+            line = f"{i}. {name} ({label_emoji}{amt_sign}{amt_eok:.1f}억) : {rate}% {rate_emoji} ({price:,}원)"
+            rows.append({"tag": "p", "children": [line]})
+        return rows
+
+    content_json = [
+        {"tag": "p", "children": [f"📅 {date_str} 기준 (하루 4회 업데이트)"]},
+        {"tag": "h4", "children": ["👽 외국인 순매수 Top 10"]},
+    ]
+    content_json += make_rows(frgn_top10, "👽+")
+    content_json.append({"tag": "h4", "children": ["🏛️ 기관계 순매수 Top 10"]})
+    content_json += make_rows(inst_top10, "🏛️+")
+
+    content_str = ujson.dumps(content_json)
+    try:
+        if not telegraph_info["path"]:
+            res = requests.post("https://api.telegra.ph/createPage", json={
+                "access_token": telegraph_info["access_token"],
+                "title": "🏦 외국인/기관 수급 동향",
+                "content": content_str,
+                "return_content": False
+            }).json()
+            if res.get("ok"):
+                telegraph_info["path"] = res["result"]["path"]
+                telegraph_info["url"] = res["result"]["url"]
+                return telegraph_info["url"]
+        else:
+            requests.post("https://api.telegra.ph/editPage", json={
+                "access_token": telegraph_info["access_token"],
+                "path": telegraph_info["path"],
+                "title": "🏦 외국인/기관 수급 동향",
+                "content": content_str,
+                "return_content": False
+            })
+            return telegraph_info["url"]
+    except Exception as e:
+        print(f"⚠️ [수급동향] telegra.ph 업데이트 실패: {e}")
+    return None
+
+
+# =========================================================
 # 🐳 [K-Whale] 국내 주식 수급 포착
 # =========================================================
 
@@ -660,6 +771,46 @@ def fetch_kr_volume_rank(token):
     except Exception as e:
         print(f"⚠️ [K-Whale] 거래량 순위 조회 실패: {e}")
         return []
+
+def fetch_kr_trading_value_rank(token):
+    """
+    [REST] 국내주식 거래대금 순위 (FHPST01710000, FID_DIV_CLS_CODE=1)
+    - 거래대금(금액) 기준 상위 30종목 (telegra.ph 대시보드 표시용)
+    """
+    url = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/volume-rank"
+    headers = {
+        "content-type": "application/json; utf-8",
+        "authorization": f"Bearer {token}",
+        "appkey": settings.KIS_APP_KEY,
+        "appsecret": settings.KIS_APP_SECRET,
+        "tr_id": "FHPST01710000",
+        "custtype": "P"
+    }
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_COND_SCR_DIV_CODE": "20171",
+        "FID_INPUT_ISCD": "0000",
+        "FID_DIV_CLS_CODE": "1",          # 1 = 거래대금 기준
+        "FID_BLNG_CLS_CODE": "0",
+        "FID_TRGT_CLS_CODE": "0",
+        "FID_TRGT_EXLS_CLS_CODE": "0",
+        "FID_INPUT_PRICE_1": "",
+        "FID_INPUT_PRICE_2": "",
+        "FID_VOL_CNT": "",
+        "FID_INPUT_VOL_1": "",
+        "FID_INPUT_VOL_2": "",
+        "FID_INPUT_DATE_1": ""
+    }
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5.0)
+        data = res.json()
+        if res.status_code == 200 and 'output' in data:
+            return data['output']
+        return []
+    except Exception as e:
+        print(f"⚠️ [K-Whale] 거래대금 순위 조회 실패: {e}")
+        return []
+
 
 def fetch_kr_bulk_rank(token):
     """

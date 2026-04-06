@@ -20,7 +20,7 @@ class GeminiSearch:
 
     def _generate_sync(self, prompt):
         return self.client.models.generate_content(
-            model='gemini-3-flash-preview', 
+            model='gemini-2.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.1,

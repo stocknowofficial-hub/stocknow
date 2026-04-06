@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { MobileNav } from "@/components/MobileNav";
 import { CopyButton } from "@/components/CopyButton";
+import { MobileNav } from "@/components/MobileNav";
 
 interface ReferralRow {
   rewarded: number;
@@ -85,10 +85,10 @@ export default async function ReferralsPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex">
         <DashboardSidebar user={session.user} provider={provider} />
 
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1">
           <div className="px-4 pt-6 pb-28 lg:px-12 lg:pt-10 lg:pb-12 max-w-2xl mx-auto">
             <header className="mb-6">
               <h2 className="text-2xl lg:text-3xl font-bold mb-1">초대 혜택</h2>
@@ -191,7 +191,6 @@ export default async function ReferralsPage() {
           </div>
         </main>
       </div>
-
       <MobileNav />
     </div>
   );

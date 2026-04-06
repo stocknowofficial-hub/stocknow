@@ -8,7 +8,7 @@ from common.config import settings
 from common.logger import setup_logger # ✅ Logger Import
 from worker.modules.ai.gemini_search import GeminiSearch
 from worker.modules.ai.gemini_search_pro import GeminiSearchPro
-from worker.modules.prediction_generator import generate_prediction_from_report, generate_prediction_from_trump
+from worker.modules.prediction_generator import generate_prediction_from_report, generate_prediction_from_trump, generate_prediction_from_briefing
 
 logger = setup_logger("NewsWorker", "logs/worker", "worker.log")
 
@@ -259,6 +259,14 @@ class NewsWorker:
                                                 sub_name = {"OPENING": "개장 브리핑", "MID": "오전/장중 브리핑", "CLOSE": "마감 브리핑"}.get(data.get('subtype'), "브리핑")
                                                 title = f"{mk_name} [{sub_name}]"
                                                 category = "BRIEFING"
+                                                # 🔮 브리핑 → 단기 예측 생성 (백그라운드)
+                                                asyncio.create_task(
+                                                    generate_prediction_from_briefing(
+                                                        market=data.get('market', 'KR'),
+                                                        subtype=data.get('subtype', 'CLOSE'),
+                                                        briefing_text=summary,
+                                                    )
+                                                )
                                             elif msg_type == 'SNS_ANALYSIS':
                                                 title = f"🏛️ [트럼프 긴급 포착]"
                                                 category = "TRUMP"

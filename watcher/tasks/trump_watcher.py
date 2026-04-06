@@ -65,53 +65,44 @@ async def run_trump_watcher():
                 else:
                     print(f"✅ [SNS Watcher] 타겟 고정 완료. Account ID: {TRUMP_ACCOUNT_ID}")
 
-            # 2. 최신 타임라인 조회 (Posts)
-            api_url = f"{API_BASE_URL}/accounts/{TRUMP_ACCOUNT_ID}/statuses?exclude_replies=true&limit=1"
-            
+            # 2. 최신 타임라인 조회 (최대 5개 — 2분 사이 다수 게시 대응)
+            api_url = f"{API_BASE_URL}/accounts/{TRUMP_ACCOUNT_ID}/statuses?exclude_replies=true&limit=5"
+
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(None, lambda: requests.get(api_url, headers=HEADERS, timeout=15))
 
             if response.status_code == 200:
                 posts = response.json()
-                
-                if posts and len(posts) > 0:
-                    latest_post = posts[0]
-                    
-                    # -------------------------------------------------
-                    # 📝 데이터 파싱 (JSON)
-                    # -------------------------------------------------
-                    current_id = str(latest_post.get('id'))
-                    
-                    # HTML 태그 제거 (Content가 HTML로 옴)
-                    raw_html = latest_post.get('content', '')
-                    soup = BeautifulSoup(raw_html, 'html.parser')
-                    post_text = soup.get_text(separator=' ', strip=True) 
-                    
-                    # 시간 (UTC ISO format -> 예쁘게 변환은 Worker가 하거나 그대로 전달)
-                    post_time = latest_post.get('created_at')
-                    
-                    # 링크
-                    post_link = latest_post.get('url', '') # API가 친절하게 Link 줌!
 
-                    # -------------------------------------------------
-                    # 🚦 판단 로직 (ID 비교)
-                    # -------------------------------------------------
-                    if current_id:
-                        # [초기화] 봇 켜고 처음 봤을 때 -> 기준점만 설정
-                        if LAST_POST_REAL_ID is None:
+                if posts and len(posts) > 0:
+                    latest_id = str(posts[0].get('id'))
+
+                    # [초기화] 봇 켜고 처음 봤을 때 → 기준점만 설정 (이전 글 처리 안 함)
+                    if LAST_POST_REAL_ID is None:
+                        LAST_POST_REAL_ID = latest_id
+                        print(f"✅ [SNS Watcher] 기준점 설정 완료: ID {latest_id} ({posts[0].get('created_at')})")
+                    else:
+                        # 새 글만 추려서 오래된 순으로 처리 (역순 순회)
+                        new_posts = [p for p in posts if str(p.get('id')) > LAST_POST_REAL_ID]
+                        new_posts.reverse()  # 오래된 것부터 처리
+
+                        for post in new_posts:
+                            current_id = str(post.get('id'))
+                            raw_html = post.get('content', '')
+                            soup = BeautifulSoup(raw_html, 'html.parser')
+                            post_text = soup.get_text(separator=' ', strip=True)
+                            post_time = post.get('created_at')
+                            post_link = post.get('url', '')
+
+                            # ID는 텍스트 여부 관계없이 항상 갱신 (누락 방지)
                             LAST_POST_REAL_ID = current_id
-                            print(f"✅ [SNS Watcher] 기준점 설정 완료: ID {current_id} ({post_time})")
-                        
-                        # [새 글 발견] 저장된 ID랑 다를 때
-                        elif LAST_POST_REAL_ID != current_id:
-                            # ✅ [필터] 텍스트 없는 글(사진/영상만 있는 경우)은 스킵
+
+                            # 텍스트 없는 미디어 글은 분석 스킵
                             if not post_text:
-                                print(f"🔇 [SNS Watcher] 텍스트가 없는 미디어 게시글입니다. (Skip) - ID: {current_id}")
-                                LAST_POST_REAL_ID = current_id 
+                                print(f"🔇 [SNS Watcher] 미디어 게시글 스킵 - ID: {current_id}")
                                 continue
 
-                            print(f"🚨 [속보] (API) 트럼프 새 글 발견! (ID: {current_id})")
-                            
+                            print(f"🚨 [속보] 트럼프 새 글 발견! (ID: {current_id})")
                             payload = {
                                 "type": "SNS_ANALYSIS",
                                 "source": "Truth Social",
@@ -121,8 +112,6 @@ async def run_trump_watcher():
                                 "url": post_link
                             }
                             await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
-                            
-                            LAST_POST_REAL_ID = current_id
                 else:
                     print("🤔 [SNS Watcher] 게시글이 0개입니다.")
 

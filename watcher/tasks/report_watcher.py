@@ -123,6 +123,15 @@ async def check_weekly_reports():
                 broker_text = tds[1].text.strip() if len(tds) > 1 else ""
                 date_text = tds[3].text.strip() if len(tds) > 3 else ""
 
+                # 날짜 필터: 7일 이내 리포트만 처리 (네이버 날짜 형식: yy.mm.dd)
+                if date_text:
+                    try:
+                        report_date = datetime.strptime("20" + date_text.strip(), "%Y.%m.%d")
+                        if (datetime.now() - report_date).days > 1:
+                            break  # 날짜순 정렬이므로 이후는 모두 오래된 것 → 조기 종료
+                    except ValueError:
+                        pass
+
                 # 이미 수집한 제목은 중복 스킵
                 if any(c['title'] == title_text for c in collected):
                     continue
@@ -152,7 +161,20 @@ async def check_weekly_reports():
         except Exception as e:
             print(f"❌ [WeeklyReport] keyword='{keyword}' 오류: {e}")
 
-    print(f"📊 [WeeklyReport] 총 {len(collected)}개 리포트 발견")
+    # ── 불필요 리포트 필터링 ──────────────────────────────
+    # 제외: ESG 스코어링 → 종목 방향성 예측 불가
+    # 제외: China Weekly → 중국 내수주 중심, 국내/미국 직접 매매 종목 아님
+    EXCLUDE_KEYWORDS = ["ESG Weekly", "ESG WEEKLY", "China Weekly", "china weekly"]
+    before = len(collected)
+    collected = [
+        c for c in collected
+        if not any(kw.lower() in c['title'].lower() for kw in EXCLUDE_KEYWORDS)
+    ]
+    excluded = before - len(collected)
+    if excluded:
+        print(f"🚫 [WeeklyReport] {excluded}개 리포트 필터링됨")
+
+    print(f"📊 [WeeklyReport] 분석 대상: {len(collected)}개 리포트")
 
     # 각 리포트 다운로드 + Redis 발행 (미처리된 것만)
     for item in collected:
@@ -207,31 +229,19 @@ def cleanup_old_reports(days=30):
         print(f"⚠️ [Cleanup] Error: {e}")
 
 async def run_report_watcher():
-    print("📑 [Report Watcher] Global Insight collecting started...")
-    
-    # Check cleanup at startup
     cleanup_old_reports()
-    
-    # 🚀 Run immediately on startup (Check for missed reports)
     print("🚀 [Startup] Running initial check...")
     await check_blackrock()
     await check_weekly_reports()
-
     while True:
         try:
             now_kr = datetime.now(pytz.timezone('Asia/Seoul'))
             now_ny = datetime.now(pytz.timezone('America/New_York'))
-
-            # BlackRock: 월요일 NY시간 08-18시 매시간
             if now_ny.weekday() == 0 and 8 <= now_ny.hour <= 18:
                 await check_blackrock()
-
-            # 국내 weekly 리포트: 평일 09-18시 매시간 (주로 월~금 오전 업로드)
             if now_kr.weekday() < 5 and 9 <= now_kr.hour <= 18:
                 await check_weekly_reports()
-
             await asyncio.sleep(3600)
-
         except Exception as e:
             print(f"❌ [Report Watcher] Loop Error: {e}")
             await asyncio.sleep(60)

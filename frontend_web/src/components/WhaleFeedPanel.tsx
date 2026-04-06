@@ -33,7 +33,7 @@ interface WhaleFeedPanelProps {
 const KR_TABS: TabConfig[] = [
   { key: 'volume', label: '📈 거래량' },
   { key: 'foreign', label: '👽 외국인' },
-  { key: 'program', label: '🤖 프로그램' },
+  { key: 'program', label: '🏛️ 기관' },
 ];
 
 const US_TABS: TabConfig[] = [

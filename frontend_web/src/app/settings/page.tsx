@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { MobileNav } from "@/components/MobileNav";
 import { TelegramLinkButton } from "@/components/TelegramLinkButton";
+import { MobileNav } from "@/components/MobileNav";
 import { SignOutButton } from "@/components/SignOutButton";
 import { ReferralCodeInput } from "@/components/ReferralCodeInput";
 
@@ -79,10 +79,10 @@ export default async function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex">
         <DashboardSidebar user={session.user} provider={provider} />
 
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1">
           <div className="px-4 pt-6 pb-28 lg:px-12 lg:pt-10 lg:pb-12 max-w-2xl mx-auto">
             <header className="mb-6">
               <h2 className="text-2xl lg:text-3xl font-bold mb-1">설정</h2>
@@ -163,7 +163,6 @@ export default async function SettingsPage() {
           </div>
         </main>
       </div>
-
       <MobileNav />
     </div>
   );

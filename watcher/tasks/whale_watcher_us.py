@@ -176,7 +176,7 @@ async def run_whale_watcher_us(approval_key, access_token=None):
 
                     # 4. Update
                     # Title: 미국 증시 실시간 수급 현황판
-                    url = update_telegraph_board(telegraph_config, "🇺🇸 미국 증시 실시간 수급 현황판 (Live)", dashboard_list)
+                    url = update_telegraph_board(telegraph_config, "🇺🇸 미국 증시 실시간 수급 현황판 (Live)", dashboard_list, subtitle="실시간 거래량 상위 현황")
                     
                     # Call Notification Logic (omitted for brevity, handled by existing code flow if structure preserved)
                     pass 

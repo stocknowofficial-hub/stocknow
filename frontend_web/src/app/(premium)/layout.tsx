@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+import { MobileNav } from "@/components/MobileNav";
 
 export default async function PremiumLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -39,5 +40,5 @@ export default async function PremiumLayout({ children }: { children: React.Reac
     redirect("/dashboard?upgrade=1");
   }
 
-  return <>{children}</>;
+  return <>{children}<MobileNav /></>;
 }

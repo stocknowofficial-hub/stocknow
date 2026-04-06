@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from typing import List
+import os
+import requests as http_requests
+import ujson
 
 from . import models, database
+from common.config import settings
+from common.redis_client import redis_client
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=database.engine)
@@ -225,3 +230,56 @@ def get_recent_market_logs(days: int = 7, db: Session = Depends(database.get_db)
 @app.get("/")
 def read_root():
     return {"message": "Reason Hunter Backend is Running"}
+
+
+# ✅ [Manual Analysis] PDF 리포트 → Watcher 분석 파이프라인 트리거
+class AnalyzeRequest(BaseModel):
+    pdf_url: str
+    source: str        # 증권사명 (예: 키움증권)
+    title: str | None = None   # 생략 시 자동 생성
+    report_date: str | None = None  # YYYY-MM-DD (생략 시 오늘)
+
+DOWNLOAD_DIR = os.path.abspath("data/reports")
+
+@app.post("/analyze")
+async def analyze_report(req: AnalyzeRequest):
+    """PDF URL을 받아 다운로드 후 Watcher 분석 파이프라인으로 전달"""
+    try:
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+        resp = http_requests.get(
+            req.pdf_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"PDF 다운로드 실패: HTTP {resp.status_code}")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        source_slug = req.source.replace(" ", "_").lower()
+        saved_path = os.path.join(DOWNLOAD_DIR, f"{source_slug}_{timestamp}.pdf")
+
+        with open(saved_path, "wb") as f:
+            f.write(resp.content)
+
+        date_str = req.report_date or datetime.now().strftime("%Y-%m-%d")
+        title = req.title or f"{req.source} 리포트 ({date_str})"
+
+        payload = {
+            "type": "REPORT_ANALYSIS",
+            "source": req.source,
+            "title": title,
+            "file_path": saved_path,
+            "url": req.pdf_url,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        await redis_client.publish(settings.REDIS_CHANNEL_STOCK, ujson.dumps(payload))
+
+        logger.info(f"🚀 [Analyze] Published: {title} ({req.source})")
+        return {"ok": True, "message": "분석 요청이 전송되었습니다.", "title": title}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ [Analyze] 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { TelegramLinkButton } from "@/components/TelegramLinkButton";
+import { MobileNav } from "@/components/MobileNav";
 import { PremiumUpgradeButton } from "@/components/PremiumUpgradeButton";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { MobileNav } from "@/components/MobileNav";
 import { PaymentBanner } from "@/components/PaymentBanner";
 import { WhaleFeedPanel, KR_TABS, US_TABS, type Sections } from "@/components/WhaleFeedPanel";
 import { CopyButton } from "@/components/CopyButton";
@@ -101,7 +101,7 @@ export default async function DashboardPage({
         whaleSections = {
           program: parse(whaleRow.program_items),
           foreign: parse(whaleRow.foreign_items),
-          volume:  parse(whaleRow.volume_items),
+          volume: parse(whaleRow.volume_items),
         };
         whaleUpdatedAt = whaleRow.updated_at;
       }
@@ -110,7 +110,7 @@ export default async function DashboardPage({
         whaleUsSections = {
           program: parse(whaleUsRow.program_items),
           foreign: parse(whaleUsRow.foreign_items),
-          volume:  parse(whaleUsRow.volume_items),
+          volume: parse(whaleUsRow.volume_items),
         };
         whaleUsUpdatedAt = whaleUsRow.updated_at;
       }
@@ -149,24 +149,26 @@ export default async function DashboardPage({
   // expires_at = NULL → 무제한 (free plan은 만료 없음)
   const expiresDisplay = subscription?.expires_at
     ? new Date(subscription.expires_at).toLocaleDateString("ko-KR", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
     : "무제한";
 
   // 초대 코드: userId의 숫자 파트 뒤 8자리로 생성 (예: SN-1234-5678)
   const numericPart = userId.replace(/^[^_]+_/, "").replace(/\D/g, "");
   const code = numericPart.slice(-8).padStart(8, "0");
   const referralCode = `SN-${code.slice(0, 4)}-${code.slice(4)}`;
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "Stock_Now_Bot";
+  const inviteLink = `https://t.me/${botUsername}?start=ref_${code}`;
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex">
         <DashboardSidebar user={session.user} provider={provider} />
 
         {/* Main */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1">
           <Suspense fallback={null}>
             <PaymentBanner />
           </Suspense>
@@ -190,11 +192,10 @@ export default async function DashboardPage({
                 </h2>
                 <p className="text-gray-500 text-sm">오늘은 국내 거래소 고래 수급이 활발합니다.</p>
               </div>
-              <span className={`shrink-0 px-3 py-1.5 rounded-full border font-medium text-xs flex items-center gap-1.5 ${
-                !isPaid
-                  ? "bg-white/5 text-gray-400 border-white/10"
-                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-              }`}>
+              <span className={`shrink-0 px-3 py-1.5 rounded-full border font-medium text-xs flex items-center gap-1.5 ${!isPaid
+                ? "bg-white/5 text-gray-400 border-white/10"
+                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${!isPaid ? "bg-gray-500" : "bg-emerald-500 animate-pulse"}`} />
                 {planDisplay}
               </span>
@@ -218,8 +219,8 @@ export default async function DashboardPage({
                   {plan === "trial"
                     ? `7일 무료 체험 중입니다. ${expiresDisplay}에 종료됩니다.`
                     : isPaid
-                    ? "구독 중입니다. 모든 기능을 사용할 수 있습니다."
-                    : "무료 플랜을 이용 중입니다."}
+                      ? "구독 중입니다. 모든 기능을 사용할 수 있습니다."
+                      : "무료 플랜을 이용 중입니다."}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <TelegramLinkButton isLinked={telegramLinked} />
@@ -237,7 +238,7 @@ export default async function DashboardPage({
                   <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-1">내 초대 코드</div>
                   <div className="flex items-center justify-between font-mono text-purple-400">
                     <span className="text-sm">{referralCode}</span>
-                    <CopyButton text={referralCode} />
+                    <CopyButton text={inviteLink} label="🔗 초대 링크 복사" />
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-sm text-gray-500">
@@ -309,7 +310,6 @@ export default async function DashboardPage({
           </div>
         </main>
       </div>
-
       <MobileNav />
     </div>
   );

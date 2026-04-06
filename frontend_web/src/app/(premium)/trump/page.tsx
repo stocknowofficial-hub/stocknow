@@ -12,7 +12,7 @@ async function getTrumpData() {
     const [{ results }, stats] = await Promise.all([
       db.prepare(`SELECT * FROM predictions WHERE source = 'trump' ORDER BY created_at DESC LIMIT 20`)
         .all() as Promise<{ results: TrumpPrediction[] }>,
-      db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) as hits FROM predictions WHERE source = 'trump' AND result IS NOT NULL`)
+      db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) as hits FROM predictions WHERE source = 'trump' AND result IS NOT NULL AND direction != 'sideways'`)
         .first() as Promise<{ total: number; hits: number } | null>,
     ]);
 

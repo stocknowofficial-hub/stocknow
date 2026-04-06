@@ -158,7 +158,7 @@ export const VIX_ZONES = [
   { min: 40, max: 60,  color: "#ef4444" }, // Extreme
 ];
 
-/** rule-based 코멘트 */
+/** rule-based 코멘트 (매크로만) */
 export function getMacroComment(
   fg: number | null,
   vix: number | null
@@ -175,5 +175,66 @@ export function getMacroComment(
     return { text: "변동성 급등 — 단기 포지션 관리 필요, 방어적 접근 유효", color: "text-rose-400" };
   if (fg !== null && fg > 60)
     return { text: "탐욕 구간 — 시장 낙관론 우세, 과열 여부 모니터링 필요", color: "text-yellow-400" };
+  return { text: "중립 구간 — 개별 종목 및 섹터 선별에 집중할 구간", color: "text-gray-400" };
+}
+
+/** 매크로 + 컨센서스 통합 코멘트 (종목명 포함) */
+export function getIntegratedComment(
+  fg: number | null,
+  vix: number | null,
+  topBullish: Array<{ name: string; count: number }>,
+  topBearish: Array<{ name: string; count: number }>
+): { text: string; color: string } {
+  const bullStr = topBullish.slice(0, 2).map(t => `${t.name}(${t.count}곳)`).join(', ');
+  const bearStr = topBearish.slice(0, 1).map(t => `${t.name}(${t.count}곳)`).join(', ');
+  const hasBull = topBullish.length > 0;
+  const hasBear = topBearish.length > 0;
+
+  if (fg === null && vix === null) {
+    if (hasBull)
+      return { text: `이번 주 ${bullStr} 상승 전망 집중${hasBear ? ` · ${bearStr} 약세 전망` : ''} — 섹터 선별 전략 유효`, color: "text-gray-400" };
+    return { text: "매크로 데이터 수집 중입니다.", color: "text-gray-500" };
+  }
+
+  // 극도 공포 + 고변동성
+  if (fg !== null && fg < 20 && vix !== null && vix > 25) {
+    if (hasBull)
+      return { text: `공포 극단(F&G ${fg}) + 변동성 급등(VIX ${vix}) 속에서도 ${bullStr} 상승 전망 집중 — 역발상 관점 주목`, color: "text-amber-400" };
+    return { text: `극도 공포(F&G ${fg}) + 변동성 확대(VIX ${vix}) — 바닥 탐색 구간, 역발상 매수 관점 참고`, color: "text-amber-400" };
+  }
+
+  // 극도 공포만
+  if (fg !== null && fg < 20) {
+    if (hasBull)
+      return { text: `공포 극단(F&G ${fg}) 속 ${bullStr} 상승 전망 — 역사적 역발상 매수 구간 신호`, color: "text-amber-400" };
+    return { text: `공포 극단 구간(F&G ${fg}) — 역사적으로 역발상 매수 기회였던 경우 많음`, color: "text-amber-400" };
+  }
+
+  // 과열 + 저변동성
+  if (fg !== null && fg > 80 && vix !== null && vix < 15) {
+    if (hasBull)
+      return { text: `과열 구간(F&G ${fg})에서 ${bullStr} 강세 전망 — 신규 진입 신중, 차익실현 고려`, color: "text-rose-400" };
+    return { text: `과열 + 저변동성 — 차익실현 고려 구간, 신규 진입 신중히`, color: "text-rose-400" };
+  }
+
+  // 고변동성
+  if (vix !== null && vix > 30) {
+    if (hasBull && hasBear)
+      return { text: `변동성 급등(VIX ${vix}) 속 ${bullStr} 강세 vs ${bearStr} 약세 — 방향 분산, 선별 접근 필요`, color: "text-rose-400" };
+    if (hasBull)
+      return { text: `변동성 급등(VIX ${vix}) 속에서도 ${bullStr} 상승 전망 — 변동성 감안 포지션 관리`, color: "text-rose-400" };
+    return { text: `변동성 급등(VIX ${vix}) — 단기 포지션 관리 필요, 방어적 접근 유효`, color: "text-rose-400" };
+  }
+
+  // 탐욕
+  if (fg !== null && fg > 60) {
+    if (hasBull)
+      return { text: `탐욕 구간(F&G ${fg})에서 ${bullStr} 강세 전망 집중 — 과열 여부 모니터링`, color: "text-yellow-400" };
+    return { text: `탐욕 구간(F&G ${fg}) — 시장 낙관론 우세, 과열 여부 모니터링 필요`, color: "text-yellow-400" };
+  }
+
+  // 중립
+  if (hasBull)
+    return { text: `이번 주 ${bullStr} 상승 전망 집중${hasBear ? ` · ${bearStr} 약세 전망` : ''} — 섹터 선별 전략 유효`, color: "text-gray-400" };
   return { text: "중립 구간 — 개별 종목 및 섹터 선별에 집중할 구간", color: "text-gray-400" };
 }

@@ -5,9 +5,10 @@ import { useState } from 'react';
 interface CopyButtonProps {
   text: string;
   label?: string;
+  className?: string;
 }
 
-export function CopyButton({ text, label = '복사' }: CopyButtonProps) {
+export function CopyButton({ text, label = '복사', className = '' }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -19,7 +20,7 @@ export function CopyButton({ text, label = '복사' }: CopyButtonProps) {
   return (
     <button
       onClick={handleCopy}
-      className="shrink-0 text-xs px-3 py-1.5 bg-white/5 rounded-lg hover:bg-white/10 text-white transition-colors"
+      className={`shrink-0 text-xs px-3 py-1.5 bg-white/5 rounded-lg hover:bg-white/10 text-white transition-colors flex items-center gap-1.5 ${className}`}
     >
       {copied ? '✓ 복사됨' : label}
     </button>

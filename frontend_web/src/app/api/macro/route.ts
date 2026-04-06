@@ -60,28 +60,33 @@ export async function POST(request: Request) {
     month_ago?: number | null;
   }>;
 
-  for (const item of items) {
-    await db
-      .prepare(
-        `INSERT INTO macro_feed (key, value, label, prev_close, week_ago, month_ago, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET
-           value      = excluded.value,
-           label      = excluded.label,
-           prev_close = excluded.prev_close,
-           week_ago   = excluded.week_ago,
-           month_ago  = excluded.month_ago,
-           updated_at = excluded.updated_at`
-      )
-      .bind(
-        item.key,
-        item.value,
-        item.label,
-        item.prev_close ?? null,
-        item.week_ago ?? null,
-        item.month_ago ?? null,
-      )
-      .run();
+  try {
+    for (const item of items) {
+      await db
+        .prepare(
+          `INSERT INTO macro_feed (key, value, label, prev_close, week_ago, month_ago, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET
+             value      = excluded.value,
+             label      = excluded.label,
+             prev_close = excluded.prev_close,
+             week_ago   = excluded.week_ago,
+             month_ago  = excluded.month_ago,
+             updated_at = excluded.updated_at`
+        )
+        .bind(
+          item.key,
+          item.value,
+          item.label,
+          item.prev_close ?? null,
+          item.week_ago ?? null,
+          item.month_ago ?? null,
+        )
+        .run();
+    }
+  } catch (e) {
+    console.error("[MacroAPI] DB insert error:", e);
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, saved: items.length });
