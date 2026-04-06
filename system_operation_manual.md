@@ -1,11 +1,5 @@
 # 📘 Stock Now 시스템 매뉴얼
 
-> ⚠️ 이 파일은 `system_operation_manual.md` 로 대체되었습니다.
-> 아래 파일들을 참고하세요:
-> - `system_operation_manual.md` — 기술 운영 매뉴얼 (Docker, Cloudflare, 배포)
-> - `admin_manual.md` — 관리자 매뉴얼 (/admin, 구독자 관리, DB 조회)
-> - `user_guide.md` — 사용자 가이드 (가입, 기능 사용법)
-
 > 최종 업데이트: 2026-04-01
 
 ---
