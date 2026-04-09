@@ -151,8 +151,8 @@ async def run_daily_update(market: str):
         else:  # US
             return bool(code) and code.isascii() and code.isalpha() and len(code) <= 5
 
-    active_pending = [p for p in pending_preds if market_filter(p) and p.get("direction") in ("up", "down")]
-    active_hit     = [p for p in hit_active    if market_filter(p) and p.get("direction") in ("up", "down")]
+    active_pending = [p for p in pending_preds if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
+    active_hit     = [p for p in hit_active    if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
 
     logger.info(f"💹 [PriceUpdater] {market} 대상: pending {len(active_pending)}건, hit(만료전) {len(active_hit)}건")
 

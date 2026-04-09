@@ -162,7 +162,8 @@ export function PredictionCard({ pred }: { pred: Prediction }) {
       {/* 관련 종목 */}
       {pred.related_stocks && (() => {
         try {
-          const stocks = JSON.parse(pred.related_stocks) as { name: string; code: string; reason: string }[];
+          const raw = JSON.parse(pred.related_stocks) as { name: string; code: string; reason: string }[];
+          const stocks = raw.filter(s => s.name);
           if (!stocks.length) return null;
           return (
             <div className="pl-7 mb-3">
@@ -182,13 +183,15 @@ export function PredictionCard({ pred }: { pred: Prediction }) {
                   );
                 })}
               </div>
-              <div className="space-y-0.5">
-                {stocks.map((s, i) => (
-                  <p key={i} className="text-[10px] text-gray-600">
-                    <span className="text-gray-500">{s.name}</span> · {s.reason}
-                  </p>
-                ))}
-              </div>
+              {stocks.some(s => s.reason) && (
+                <div className="space-y-0.5">
+                  {stocks.map((s, i) => s.reason ? (
+                    <p key={i} className="text-[10px] text-gray-600">
+                      <span className="text-gray-500">{s.name}</span> · {s.reason}
+                    </p>
+                  ) : null)}
+                </div>
+              )}
             </div>
           );
         } catch { return null; }

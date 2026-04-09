@@ -386,15 +386,29 @@ git pull
 docker compose up -d --build
 ```
 
-### dev DB → prod DB 동기화 (필요 시)
+### 개발 테스트 사이클 (prod → dev DB 복사)
+
+dev DB는 MacBook Docker가 쓰지 않으므로 데이터가 쌓이지 않습니다.
+테스트 전 운영 DB 스냅샷을 dev DB에 복사해서 실제 데이터로 확인합니다.
 
 ```bash
 # Windows (frontend_web 폴더)
+# 1. 운영 DB 내보내기
 npx wrangler d1 export stock-now-database --remote --output=prod_backup.sql
+
+# 2. FK 순서 오류 방지 (subscriptions → users 참조 문제)
 (echo "PRAGMA foreign_keys=OFF;" && cat prod_backup.sql) > prod_backup_fixed.sql
+
+# 3. dev DB에 적용
 npx wrangler d1 execute stock-now-dev-database --remote --file=prod_backup_fixed.sql
+
+# 4. 임시 파일 정리
 rm prod_backup.sql prod_backup_fixed.sql
 ```
+
+→ 이후 `npm run pages:deploy:dev` 로 dev Pages에 배포하면 실제 운영 데이터로 테스트 가능
+
+> ⚠️ dev DB는 MacBook Docker가 업데이트하지 않습니다. 오래되면 위 과정을 다시 실행하세요.
 
 ---
 

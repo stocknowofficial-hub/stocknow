@@ -47,22 +47,6 @@ export default async function TrumpPage() {
           <p className="text-[11px] text-gray-600 mt-1">※ 투자 조언이 아닙니다. 참고 목적으로만 활용하세요.</p>
         </div>
 
-        {/* 적중률 */}
-        {stats && stats.total > 0 && (
-          <div className="rounded-2xl lg:rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/10 to-amber-500/5 p-6 mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-1 text-orange-400">트럼프 예측 적중률</p>
-                <p className="text-xs text-gray-400">총 {stats.total}건 결과 확정 · 적중 {stats.hits}건</p>
-              </div>
-              <span className="text-4xl font-black text-white tracking-tight">{hitRate !== null ? `${hitRate}%` : '-'}</span>
-            </div>
-            <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
-                style={{ width: `${hitRate ?? 0}%` }} />
-            </div>
-          </div>
-        )}
 
         {predictions.length === 0 ? (
           <div className="text-center py-20 text-gray-600">

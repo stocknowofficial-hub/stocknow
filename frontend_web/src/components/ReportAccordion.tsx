@@ -42,6 +42,12 @@ interface ReportItem {
   expires_at: string | null;
 }
 
+function getSourceLabel(source: string): string {
+  if (source.startsWith('briefing_kr')) return '🇰🇷 한국장 브리핑';
+  if (source.startsWith('briefing_us')) return '🇺🇸 미국장 브리핑';
+  return source;
+}
+
 function DirIcon({ dir }: { dir: string }) {
   if (dir === 'up') return <span className="font-bold text-emerald-400">↑</span>;
   if (dir === 'down') return <span className="font-bold text-rose-400">↓</span>;
@@ -120,7 +126,8 @@ function WsBadge({ ws, targetCode }: { ws: WallStreetData; targetCode: string | 
 function AccordionItem({ r, wsMap }: { r: ReportItem; wsMap: Record<string, WallStreetData> }) {
   const [open, setOpen] = useState(false);
   const points: string[] | null = r.key_points ? (() => { try { return JSON.parse(r.key_points!); } catch { return null; } })() : null;
-  const relatedStocks: RelatedStock[] | null = r.related_stocks ? (() => { try { return JSON.parse(r.related_stocks!); } catch { return null; } })() : null;
+  const relatedStocksRaw: RelatedStock[] | null = r.related_stocks ? (() => { try { return JSON.parse(r.related_stocks!); } catch { return null; } })() : null;
+  const relatedStocks = relatedStocksRaw?.filter(s => s.name) ?? null;
   const tradeSetup: TradeSetup | null = r.trade_setup ? (() => { try { return JSON.parse(r.trade_setup!); } catch { return null; } })() : null;
   const hasPriceChange = r.price_change_pct !== null && r.price_change_pct !== undefined;
   const isAligned = hasPriceChange && (
@@ -140,7 +147,7 @@ function AccordionItem({ r, wsMap }: { r: ReportItem; wsMap: Record<string, Wall
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <span className="text-xs font-semibold text-gray-300">{r.source}</span>
+            <span className="text-xs font-semibold text-gray-300">{getSourceLabel(r.source)}</span>
             <ConfBadge conf={r.confidence} />
             <span className="text-[10px] text-gray-600">
               {(() => { const d = new Date(r.created_at); return `${d.getMonth()+1}/${d.getDate()}`; })()}
@@ -228,7 +235,7 @@ function AccordionItem({ r, wsMap }: { r: ReportItem; wsMap: Record<string, Wall
                           <span className="text-xs font-semibold text-gray-200">{s.name}</span>
                           <span className="text-[10px] text-gray-600">{s.code}</span>
                         </a>
-                        <p className="text-[10px] text-gray-500 mt-0.5">{s.reason}</p>
+                        {s.reason && <p className="text-[10px] text-gray-500 mt-0.5">{s.reason}</p>}
                         {ws && <WsBadge ws={ws} targetCode={s.code} />}
                       </div>
                     </div>

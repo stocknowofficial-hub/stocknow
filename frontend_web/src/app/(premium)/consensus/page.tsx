@@ -3,7 +3,7 @@ import { MacroGauge, FG_ZONES, VIX_ZONES, getIntegratedComment } from '@/compone
 import { LastWeekPanel } from '@/components/LastWeekPanel';
 import { ShowMoreReports } from '@/components/ShowMoreReports';
 import { PredictionTableSection, type TableRow } from '@/components/PredictionTableSection';
-import { ShowMoreTargets, type TargetDisplay } from '@/components/ShowMoreTargets';
+import { ShowMoreTargets, type TargetDisplay, type SourceEntry } from '@/components/ShowMoreTargets';
 
 const ETF_NAMES: Record<string, string> = {
   '069500': 'KODEX 200 (코스피)',
@@ -118,7 +118,7 @@ async function getConsensusData() {
     const [dirRes, targetRes, sourcesRes, reportRes, reportCountRes, accRes, accStats, lastWeekTargetRes, summaryRes, bestTradeRes, keyPointsRes, tableRes] = await Promise.all([
       db.prepare(`SELECT direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY direction`).all(),
       db.prepare(`SELECT target, target_code, direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY target, direction`).all(),
-      db.prepare(`SELECT DISTINCT target, direction, source FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).all(),
+      db.prepare(`SELECT target, direction, source, date(created_at) as date FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).all(),
       db.prepare(`SELECT id, source, source_desc, source_url, prediction, direction, target, target_code, confidence, created_at, key_points, related_stocks, action, trade_setup, price_change_pct, entry_price, current_price, expires_at FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' ORDER BY created_at DESC LIMIT 10`).all(),
       db.prepare(`SELECT COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).first(),
       db.prepare(`SELECT id, source, prediction, direction, target, result, price_change_pct, peak_change_pct, peak_at, hit_change_pct, hit_at, created_at, expires_at FROM predictions WHERE result IS NOT NULL AND expires_at >= datetime('now', '-14 days') ORDER BY ABS(COALESCE(peak_change_pct, hit_change_pct, price_change_pct, 0)) DESC LIMIT 20`).all(),
@@ -222,7 +222,7 @@ async function getConsensusData() {
       weeklySummary,
       bestTrade,
       topKeyPoints: Object.fromEntries(topKeyPoints),
-      sources: sourcesRes.results as Array<{ target: string; direction: string; source: string }>,
+      sources: sourcesRes.results as Array<{ target: string; direction: string; source: string; date: string }>,
       wallstreet: wallstreetItems,
       accuracyStats: {
         total: accStatsTyped?.total ?? 0,
@@ -276,12 +276,12 @@ export default async function ConsensusPage() {
 
   const macroComment = getIntegratedComment(fg?.value ?? null, vix?.value ?? null, topBullish, topBearish);
 
-  // 종목별 언급 증권사 맵 구성
-  const sourcesMap = new Map<string, { up: string[]; down: string[] }>();
+  // 종목별 언급 출처 맵 구성 (source + date)
+  const sourcesMap = new Map<string, { up: SourceEntry[]; down: SourceEntry[] }>();
   for (const row of sources) {
     const entry = sourcesMap.get(row.target) ?? { up: [], down: [] };
-    if (row.direction === 'up') entry.up.push(row.source);
-    else if (row.direction === 'down') entry.down.push(row.source);
+    if (row.direction === 'up') entry.up.push({ source: row.source, date: row.date });
+    else if (row.direction === 'down') entry.down.push({ source: row.source, date: row.date });
     sourcesMap.set(row.target, entry);
   }
 
@@ -521,8 +521,8 @@ export default async function ConsensusPage() {
           {reportItems.length > 0 && (
             <div id="reports-section" className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
               <div className="mb-4">
-                <h3 className="text-base font-bold text-white">📑 증권사 리포트 분석 결과 ({reportTotal}건)</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">주요 증권사 시황 및 종목 분석 · 최신 10건 표시</p>
+                <h3 className="text-base font-bold text-white">📑 AI 분석 결과 ({reportTotal}건)</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">증권사 리포트 · 한국장/미국장 브리핑 종합 · 최신 10건 표시</p>
               </div>
               <ShowMoreReports
                 reports={reportItems}

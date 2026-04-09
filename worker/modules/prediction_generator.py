@@ -83,45 +83,26 @@ JSON 배열만 출력 (설명 없이, 코드블록 없이):
 """
 
 TRUMP_PREDICTION_PROMPT = """
-트럼프의 Truth Social 게시글을 분석해서, 영향받을 섹터별 대표 종목 각각에 대한 예측 카드 배열을 만들어줘.
-ETF 수준이 아니라, 실제로 매수/매도할 만한 개별 종목 또는 섹터 ETF 단위로 하나씩 카드를 만들어.
+트럼프의 Truth Social 게시글을 분석해서, 가장 직접적으로 영향받을 종목 1~2개에 대한 예측 카드 배열을 만들어줘.
 
 게시글 내용:
 {text}
 
 규칙:
 - 주식/경제/정책과 무관한 게시글(음식, 스포츠, 개인 일상 등)이면: {{"skip": true}} 만 반환
-- 영향받는 섹터마다 대표 종목 1~2개씩, 전체 최대 6개 카드
-- 방향이 up 또는 down으로 명확한 것만 포함. sideways(횡보/영향 미미/불확실) 절대 금지
-- target_code: 한국 ETF는 6자리 숫자 코드, 미국 개별주는 티커(예: LMT, XOM, PANW)
-- 예시 (이란 확전 시나리오):
-  [{{"target": "록히드 마틴", "target_code": "LMT", "direction": "up"}},
-   {{"target": "제너럴 다이내믹스", "target_code": "GD", "direction": "up"}},
-   {{"target": "엑슨모빌", "target_code": "XOM", "direction": "up"}},
-   {{"target": "팔로알토 네트웍스", "target_code": "PANW", "direction": "up"}},
-   {{"target": "K-방산 ETF", "target_code": "490090", "direction": "up"}},
-   {{"target": "델타항공", "target_code": "DAL", "direction": "down"}}]
-
-[한국 ETF 코드]
-코스피: 069500 / 코스닥: 229200 / S&P500: 379800 / 나스닥: 133690
-WTI원유: 261220 / 금: 132030 / K-방산: 490090 / 반도체: 091160
-2차전지: 305720 / 자동차: 091180 / 조선: 139220
-
-[미국 주요 방산주] LMT, RTX, GD, NOC, BA, LHX
-[미국 주요 에너지주] XOM, CVX, OXY, COP, SLB
-[미국 주요 사이버보안주] PANW, CRWD, CHKP, FTNT, ZS
-[미국 주요 항공주] DAL, UAL, LUV, AAL
-[미국 주요 금융주] JPM, GS, BAC, C
-[미국 빅테크] NVDA, AAPL, MSFT, META, GOOGL, AMZN, TSLA
+- 발언 내용에서 가장 직접적으로 영향받을 종목만 선정 (최대 2개)
+- 방향이 up 또는 down으로 명확한 것만 포함. 불확실하면 제외
+- 미국 개별주: 정확한 티커 사용 (예: 관세→TSLA, 에너지→XOM, 반도체→NVDA 등 발언과 직결된 종목)
+- 한국 ETF: 6자리 코드 사용 (코스피: 069500 / K-방산: 490090 / 반도체: 091160 / WTI원유: 261220)
 
 JSON 배열만 출력 (설명 없이, 코드블록 없이):
 [
   {{
-    "prediction": "[트럼프] 구체적 예측 (예: '[트럼프] 이란 지상군 투입 → 록히드 마틴 단기 급등 전망')",
+    "prediction": "[트럼프] 발언 핵심 → 종목명 단기 전망 (1줄)",
     "direction": "up 또는 down",
-    "target": "종목명 또는 ETF명 (예: 록히드 마틴, 엑슨모빌, K-방산 ETF)",
-    "target_code": "미국 티커(예: LMT) 또는 한국 6자리 코드(예: 490090)",
-    "basis": "핵심 근거 한 줄 (트럼프 발언과의 연결고리 포함)",
+    "target": "종목명 또는 ETF명",
+    "target_code": "미국 티커 또는 한국 6자리 코드",
+    "basis": "이 종목이 영향받는 핵심 근거 한 줄",
     "key_points": [
       "트럼프 발언 핵심: ...",
       "이 종목이 수혜/피해받는 구체적 이유",
@@ -133,9 +114,9 @@ JSON 배열만 출력 (설명 없이, 코드블록 없이):
     "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
     "action_reason": "이유 한 줄",
     "trade_setup": {{
-      "entry": "진입 조건 (예: '장 개시 후 상승 확인 시 매수', '현재가 근처 즉시')",
-      "stop_loss": "손절 기준 (예: '-5% 이탈 시')",
-      "target": "목표 (예: '+10~15%')"
+      "entry": "진입 조건",
+      "stop_loss": "손절 기준",
+      "target": "목표"
     }},
     "timeframe": 7,
     "confidence": "high 또는 medium 또는 low"
@@ -444,27 +425,29 @@ BRIEFING_PREDICTION_PROMPT = """
 {text}
 
 규칙:
-- 브리핑에서 가장 명확한 방향성이 있는 자산 1개만 선택
-- 예측 기간은 timeframe: 2 (2일) 고정
-- 모호하거나 방향성 불분명하면: {{"skip": true}} 반환
-- target_code: 아래 코드 목록에서 가장 적합한 것 선택
-
-[ETF/종목 코드]
-- 코스피: 069500 / 코스닥: 229200 / S&P500: 379800 / 나스닥: 133690
-- WTI원유: 261220 / 금: 132030 / 방산: 490090 / 반도체: 091160
-- 2차전지: 305720 / 바이오: 244580 / 은행: 091170 / 자동차: 091180
-- 삼성전자: 005930 / SK하이닉스: 000660 / 현대차: 005380
-- 미국 티커: NVDA, AAPL, MSFT, META, GOOGL, AMZN, TSLA 등
+- 브리핑에서 가장 직접적으로 영향받을 자산 1개 선택
+  - 특정 종목이 명확히 언급됐으면 그 종목 선택 (예: 엔비디아, 델타항공, 삼성전자)
+  - 특정 종목 없으면 섹터/지수 ETF 선택 (예: KODEX 반도체, SOXL, QQQ)
+  - target은 실제 상품명 또는 종목명 사용 ("반도체" 같은 카테고리명 금지)
+- target_code: 실제 티커 또는 종목코드 (미국 주식 → 티커, 한국 → 6자리 코드, ETF → ETF 코드)
+  - 참고 코드: 코스피ETF 069500 / S&P500ETF 379800 / 나스닥ETF 133690 / KODEX반도체 091160 / KODEX방산 490090
+  - 삼성전자 005930 / SK하이닉스 000660 / 현대차 005380
+  - 미국 개별주: NVDA / AMD / AVGO / AAPL / MSFT / META / TSLA / DAL / XOM 등 티커 그대로
+- related_stocks: 브리핑에서 함께 언급된 수혜/피해 종목 1~2개 (없으면 빈 배열)
+- 방향이 불분명하면: {{"skip": true}} 반환
+- 예측 기간 timeframe: 2 고정
 
 JSON만 출력 (설명 없이):
 {{
-  "prediction": "[브리핑] 예측 요약 (예: '[KR마감] 반도체 단기 강세 전망')",
+  "prediction": "예측 요약 (예: '[US개장] 엔비디아 단기 강세 전망')",
   "direction": "up 또는 down 또는 sideways",
-  "target": "예측 대상 자산명",
-  "target_code": "코드 또는 null",
+  "target": "종목명 또는 ETF 풀네임",
+  "target_code": "티커 또는 6자리 코드 또는 null",
   "basis": "핵심 근거 한 줄",
-  "key_points": ["근거1", "근거2"],
-  "related_stocks": [],
+  "key_points": ["구체적 수치 포함 근거1", "근거2", "근거3"],
+  "related_stocks": [
+    {{"name": "종목명", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}}
+  ],
   "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
   "action_reason": "이유 한 줄",
   "trade_setup": {{

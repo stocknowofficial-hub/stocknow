@@ -33,12 +33,6 @@ function ConfBadge({ conf }: { conf: string }) {
   return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/10 text-gray-500">LOW</span>;
 }
 
-function ResultBadge({ result }: { result: string }) {
-  if (result === 'hit') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">✅ 적중</span>;
-  if (result === 'miss') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">❌ 빗나감</span>;
-  return <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/5 text-gray-400 border border-white/10">보류</span>;
-}
-
 function formatDate(str: string) {
   // UTC → 미국 동부시간(ET) 변환
   const d = new Date(str + 'Z');
@@ -64,13 +58,6 @@ function formatDate(str: string) {
   return `${yy}-${mo}-${dd} ${label} ${hh}:${mm}`;
 }
 
-function DaysLeft({ expires }: { expires: string | null }) {
-  if (!expires) return null;
-  const diff = Math.ceil((new Date(expires).getTime() - Date.now()) / 86400000);
-  if (diff < 0) return <span className="text-[10px] text-gray-600">만료</span>;
-  return <span className="text-[10px] text-gray-500">D-{diff}</span>;
-}
-
 function TrumpCard({ p }: { p: TrumpPrediction }) {
   const points = p.key_points ? (() => { try { return JSON.parse(p.key_points!); } catch { return null; } })() : null;
   const hasPriceChange = p.price_change_pct !== null && p.price_change_pct !== undefined;
@@ -79,37 +66,14 @@ function TrumpCard({ p }: { p: TrumpPrediction }) {
     (p.direction === 'down' && (p.price_change_pct ?? 0) < 0)
   );
 
-  if (p.result !== null) {
-    // 결과 확정 카드 (compact)
-    return (
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <DirIcon dir={p.direction} />
-            <span className="text-sm text-gray-300">{p.prediction}</span>
-          </div>
-          <ResultBadge result={p.result} />
-        </div>
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] text-gray-600">{p.source_desc || `Trump Truth Social · ${formatDate(p.created_at)}`}</p>
-          {p.source_url && (
-            <a href={p.source_url} target="_blank" rel="noopener noreferrer"
-              className="text-[11px] text-gray-600 hover:text-gray-400">원문 →</a>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // 진행 중 카드
   return (
-    <div className={`rounded-2xl border p-5 ${isAligned ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-white/5 bg-white/[0.02]'}`}>
+    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-orange-400">🏛️ 트럼프</span>
           <ConfBadge conf={p.confidence} />
         </div>
-        <DaysLeft expires={p.expires_at} />
+        <p className="text-[11px] text-gray-600">{formatDate(p.created_at)}</p>
       </div>
 
       <div className="flex items-center gap-2 mb-2">
@@ -130,13 +94,12 @@ function TrumpCard({ p }: { p: TrumpPrediction }) {
 
       {hasPriceChange && (
         <div className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg mb-2 ${isAligned ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
-          {isAligned ? '✅' : '⏳'} 게시 당시 대비 {(p.price_change_pct ?? 0) >= 0 ? '+' : ''}{(p.price_change_pct ?? 0).toFixed(2)}%
+          ⏳ 게시 당시 대비 {(p.price_change_pct ?? 0) >= 0 ? '+' : ''}{(p.price_change_pct ?? 0).toFixed(2)}%
           {p.target && <span className="text-gray-500 ml-1">({p.target})</span>}
         </div>
       )}
 
-      <div className="flex items-center justify-between mt-2">
-        <p className="text-[11px] text-gray-600">{p.source_desc || `Trump Truth Social · ${formatDate(p.created_at)}`}</p>
+      <div className="flex justify-end mt-2">
         {p.source_url && (
           <a href={p.source_url} target="_blank" rel="noopener noreferrer"
             className="text-[11px] text-gray-600 hover:text-gray-400">원문 →</a>
@@ -168,33 +131,12 @@ export function TrumpFeed({ initialPosts }: { initialPosts: TrumpPrediction[] })
     }
   }
 
-  const pending = posts.filter(p => p.result === null);
-  const completed = posts.filter(p => p.result !== null);
-
   return (
     <>
-      {/* 진행 중 */}
-      {pending.length > 0 && (
+      {posts.length > 0 && (
         <section className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
-          <div className="mb-4">
-            <h3 className="text-base font-bold text-white">⏳ 진행 중 ({pending.length})</h3>
-            <p className="text-[10px] text-gray-500 mt-0.5">시장 결과를 기다리고 있는 예측</p>
-          </div>
           <div className="space-y-4">
-            {pending.map(p => <TrumpCard key={p.id} p={p} />)}
-          </div>
-        </section>
-      )}
-
-      {/* 결과 확정 */}
-      {completed.length > 0 && (
-        <section className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
-          <div className="mb-4">
-            <h3 className="text-base font-bold text-white">🎯 결과 확정 ({completed.length})</h3>
-            <p className="text-[10px] text-gray-500 mt-0.5">최근 종료된 예측의 적중 여부</p>
-          </div>
-          <div className="space-y-3">
-            {completed.map(p => <TrumpCard key={p.id} p={p} />)}
+            {posts.map(p => <TrumpCard key={p.id} p={p} />)}
           </div>
         </section>
       )}

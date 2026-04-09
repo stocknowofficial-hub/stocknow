@@ -170,17 +170,25 @@ export async function POST(request: Request) {
 
     // ── 7. VIP 채널 초대 링크 발송 ────────────────────────────────────
     const userRow = await db
-      .prepare("SELECT telegram_id, name FROM users WHERE id = ?")
+      .prepare("SELECT telegram_id, name, pending_invite_link FROM users WHERE id = ?")
       .bind(userId)
-      .first<{ telegram_id: string | null; name: string | null }>();
+      .first<{ telegram_id: string | null; name: string | null; pending_invite_link: string | null }>();
 
     if (userRow?.telegram_id) {
-      await sendVipInvite(
+      const prevLink = userRow.pending_invite_link ?? null;
+      const newLink = await sendVipInvite(
         userRow.telegram_id,
         userRow.name ?? "회원",
         plan.plan.toUpperCase(),
-        newExpiry.toISOString()
+        newExpiry.toISOString(),
+        prevLink
       );
+      if (newLink) {
+        await db
+          .prepare("UPDATE users SET pending_invite_link = ? WHERE id = ?")
+          .bind(newLink, userId)
+          .run();
+      }
     } else {
       console.log("[Payment Webhook] telegram_id 없음 — 텔레그램 연동 후 초대 링크 발송 예정");
     }

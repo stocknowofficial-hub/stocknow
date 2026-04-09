@@ -2,6 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react';
 
+export interface SourceEntry {
+  source: string;
+  date: string;
+}
+
 export interface TargetDisplay {
   displayName: string;
   target_code: string | null;
@@ -10,14 +15,25 @@ export interface TargetDisplay {
   count: number;
   dominant: string;
   keyPoints: string[];
-  upSources: string[];
-  downSources: string[];
+  upSources: SourceEntry[];
+  downSources: SourceEntry[];
 }
 
 const INITIAL = 5;
 const PAGE_SIZE = 5;
 
-function SourcePopup({ sources, onClose }: { sources: string[]; onClose: () => void }) {
+function getSourceLabel(source: string): string {
+  if (source.startsWith('briefing_kr')) return '🇰🇷 한국장 브리핑';
+  if (source.startsWith('briefing_us')) return '🇺🇸 미국장 브리핑';
+  return source;
+}
+
+function fmtDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function SourcePopup({ sources, onClose }: { sources: SourceEntry[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,15 +44,30 @@ function SourcePopup({ sources, onClose }: { sources: string[]; onClose: () => v
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
+  // source별로 날짜 그룹핑
+  const grouped = new Map<string, string[]>();
+  for (const { source, date } of sources) {
+    const label = getSourceLabel(source);
+    const existing = grouped.get(label) ?? [];
+    const fmt = fmtDate(date);
+    if (!existing.includes(fmt)) existing.push(fmt);
+    grouped.set(label, existing);
+  }
+
   return (
     <div
       ref={ref}
-      className="absolute right-0 bottom-full mb-2 z-50 min-w-[120px] bg-[#1a1a1f] border border-white/15 rounded-xl px-3 py-2.5 shadow-2xl"
+      className="absolute right-0 bottom-full mb-2 z-50 min-w-[160px] bg-[#1a1a1f] border border-white/15 rounded-xl px-3 py-2.5 shadow-2xl"
     >
-      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">언급 증권사</p>
-      <div className="space-y-1">
-        {sources.map((s, i) => (
-          <p key={i} className="text-[11px] text-gray-200 font-medium">{s}</p>
+      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">분석 출처</p>
+      <div className="space-y-1.5">
+        {Array.from(grouped.entries()).map(([label, dates], i) => (
+          <div key={i}>
+            <p className="text-[11px] text-gray-200 font-medium">
+              {label}
+              <span className="text-gray-500 ml-1">({dates.join(', ')})</span>
+            </p>
+          </div>
         ))}
       </div>
       {/* 말풍선 꼬리 */}
@@ -46,21 +77,20 @@ function SourcePopup({ sources, onClose }: { sources: string[]; onClose: () => v
   );
 }
 
-function MentionBadge({ count, sources, color }: { count: number; sources: string[]; color: string }) {
+function MentionBadge({ count, sources, color }: { count: number; sources: SourceEntry[]; color: string }) {
   const [open, setOpen] = useState(false);
-  const unique = [...new Set(sources)];
 
   return (
     <span className="relative shrink-0 ml-2">
       <button
         onClick={() => setOpen(v => !v)}
         className={`${color} text-xs font-semibold hover:opacity-80 transition-opacity cursor-pointer`}
-        title="클릭하면 언급 증권사 확인"
+        title="클릭하면 분석 출처 확인"
       >
         {count}곳 언급 ▾
       </button>
-      {open && unique.length > 0 && (
-        <SourcePopup sources={unique} onClose={() => setOpen(false)} />
+      {open && sources.length > 0 && (
+        <SourcePopup sources={sources} onClose={() => setOpen(false)} />
       )}
     </span>
   );

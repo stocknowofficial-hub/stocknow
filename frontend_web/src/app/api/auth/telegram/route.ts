@@ -42,7 +42,7 @@ export async function POST() {
       .first();
     console.log("[TelegramLink] SELECT check:", check ? "FOUND" : "NOT FOUND");
 
-    const botUsername = "Stock_Now_Dev_Bot"; // TODO: move to env var
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "Stock_Now_Bot";
     const link = `https://t.me/${botUsername}?start=link_${token}`;
 
     return NextResponse.json({ link, token });

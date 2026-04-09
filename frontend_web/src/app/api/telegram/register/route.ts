@@ -125,12 +125,27 @@ export async function POST(request: Request) {
       ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
       : sub.expires_at;
 
-    await sendVipInvite(
+    // 이전 pending 링크 조회 (revoke용)
+    const userRow = await db
+      .prepare("SELECT pending_invite_link FROM users WHERE id = ?")
+      .bind(userId)
+      .first<{ pending_invite_link: string | null }>();
+
+    const newLink = await sendVipInvite(
       String(chat_id),
       name ?? "회원",
       sub.plan === "trial" ? "7일 무료 체험" : sub.plan.toUpperCase(),
-      expiresAt
+      expiresAt,
+      userRow?.pending_invite_link ?? null
     );
+
+    // 새 링크 DB 저장 (null이면 이미 멤버이거나 실패 — 기존값 유지)
+    if (newLink) {
+      await db
+        .prepare("UPDATE users SET pending_invite_link = ? WHERE id = ?")
+        .bind(newLink, userId)
+        .run();
+    }
   }
 
   console.log(`[Telegram Register] ${isNewTrial ? "신규 체험" : "기존 유저"} — ${name} (${chat_id})`);

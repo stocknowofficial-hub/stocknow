@@ -1,27 +1,70 @@
 // Telegram Bot API 유틸리티 (Cloudflare Workers 환경에서 사용)
 
 const BOT_TOKEN = () => process.env.TELEGRAM_BOT_TOKEN ?? "";
-const VIP_CHANNEL_ID = () => process.env.TELEGRAM_VIP_CHANNEL_ID ?? "-1003373972207";
+const VIP_CHANNEL_ID = () => process.env.TELEGRAM_VIP_CHANNEL_ID ?? "-1003564191070";
 const SITE_URL = () => process.env.NEXTAUTH_URL ?? "https://stock-now.pages.dev";
 
 /**
  * VIP 채널 1회용 초대 링크를 생성하고 유저에게 DM으로 발송
+ * - 이미 채널 멤버면 안내 메시지만 발송 (링크 생성 안 함)
+ * - prevInviteLink 있으면 revoke 후 새 링크 발급
+ * @returns 새로 발급된 초대 링크 URL (실패 또는 이미 멤버면 null)
  */
 export async function sendVipInvite(
   telegramId: string,
   userName: string,
   planDisplay: string = "STANDARD",
-  expiresAt: string | null = null
-): Promise<boolean> {
+  expiresAt: string | null = null,
+  prevInviteLink: string | null = null
+): Promise<string | null> {
   const token = BOT_TOKEN();
   const channelId = VIP_CHANNEL_ID();
   if (!token || !channelId) {
     console.error("[Telegram] BOT_TOKEN or VIP_CHANNEL_ID not set");
-    return false;
+    return null;
   }
 
   try {
-    // 1. 1회용 초대 링크 생성 (30분 후 만료, 최대 1명)
+    // 0. 이미 채널 멤버인지 확인 — 이미 있으면 새 링크 생성 불필요
+    const memberRes = await fetch(
+      `https://api.telegram.org/bot${token}/getChatMember`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: channelId, user_id: telegramId }),
+      }
+    );
+    const memberData = (await memberRes.json()) as { ok: boolean; result?: { status: string } };
+    const memberStatus = memberData?.result?.status;
+    if (memberStatus === "member" || memberStatus === "administrator" || memberStatus === "creator") {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegramId,
+          text: `✅ 이미 VIP 채널에 입장되어 있습니다!\n\n구독 관리는 여기서: ${SITE_URL()}/dashboard`,
+          parse_mode: "Markdown",
+        }),
+      });
+      console.log("[Telegram] 이미 채널 멤버 — 초대 링크 생략:", telegramId);
+      return null;
+    }
+
+    // 1. 이전 초대 링크 revoke (있으면)
+    if (prevInviteLink) {
+      try {
+        await fetch(`https://api.telegram.org/bot${token}/revokeChatInviteLink`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: channelId, invite_link: prevInviteLink }),
+        });
+        console.log("[Telegram] 이전 초대 링크 revoke:", prevInviteLink);
+      } catch {
+        // revoke 실패해도 새 링크 발급은 계속 진행
+      }
+    }
+
+    // 2. 새 1회용 초대 링크 생성
     const expireUnix = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7; // 7일 유효
     const inviteRes = await fetch(
       `https://api.telegram.org/bot${token}/createChatInviteLink`,
@@ -43,7 +86,7 @@ export async function sendVipInvite(
 
     if (!inviteData.ok || !inviteData.result?.invite_link) {
       console.error("[Telegram] 초대 링크 생성 실패:", JSON.stringify(inviteData));
-      return false;
+      return null;
     }
 
     const inviteLink = inviteData.result.invite_link;
@@ -56,7 +99,7 @@ export async function sendVipInvite(
         })
       : "무제한";
 
-    // 2. 유저에게 DM 발송
+    // 3. 유저에게 DM 발송
     const text =
       `🎉 *VIP 채널에 입장하세요*\n\n` +
       `안녕하세요, ${userName}님!\n` +
@@ -65,7 +108,9 @@ export async function sendVipInvite(
       `아래 링크로 VIP 채널에 입장하세요:\n` +
       `👉 ${inviteLink}\n\n` +
       `⚠️ 이 링크는 1회용이며 7일간 유효합니다.\n` +
-      `입장 후 채널을 떠나지 마세요!`;
+      `입장 후 채널을 떠나지 마세요!\n\n` +
+      `🌐 구독 관리 및 AI 분석 대시보드:\n` +
+      `👉 ${SITE_URL()}/dashboard`;
 
     const msgRes = await fetch(
       `https://api.telegram.org/bot${token}/sendMessage`,
@@ -83,14 +128,14 @@ export async function sendVipInvite(
 
     if (!msgData.ok) {
       console.error("[Telegram] DM 발송 실패 (telegramId:", telegramId, "):", JSON.stringify(msgData));
-      return false;
+      return null;
     }
 
     console.log("[Telegram] VIP 초대 링크 발송 완료 →", telegramId);
-    return true;
+    return inviteLink;
   } catch (e) {
     console.error("[Telegram] sendVipInvite 예외:", e);
-    return false;
+    return null;
   }
 }
 

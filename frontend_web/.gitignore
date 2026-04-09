@@ -23,6 +23,7 @@
 # Cloudflare / OpenNext build artifacts
 /.open-next/
 /deploy_staging/
+.wrangler/
 
 # misc
 .DS_Store
@@ -36,6 +37,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+
+# Cloudflare secrets (contains sensitive values, never commit)
+secrets.dev.json
+secrets.prod.json
 
 # vercel
 .vercel
