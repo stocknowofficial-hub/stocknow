@@ -50,21 +50,32 @@ export async function sendVipInvite(
       return null;
     }
 
-    // 1. 이전 초대 링크 revoke (있으면)
+    // 1. 기존 링크 있으면 재발송 (revoke + 새 링크 생성 금지)
     if (prevInviteLink) {
-      try {
-        await fetch(`https://api.telegram.org/bot${token}/revokeChatInviteLink`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: channelId, invite_link: prevInviteLink }),
-        });
-        console.log("[Telegram] 이전 초대 링크 revoke:", prevInviteLink);
-      } catch {
-        // revoke 실패해도 새 링크 발급은 계속 진행
-      }
+      const expiresDisplay = expiresAt
+        ? new Date(expiresAt).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })
+        : "무제한";
+      const text =
+        `🎉 *VIP 채널에 입장하세요*\n\n` +
+        `안녕하세요, ${userName}님!\n` +
+        `*${planDisplay}*이 진행 중입니다!\n\n` +
+        `📅 이용 기간: ${expiresDisplay}\n\n` +
+        `아래 링크로 VIP 채널에 입장하세요:\n` +
+        `👉 ${prevInviteLink}\n\n` +
+        `⚠️ 이 링크는 1회용이며 7일간 유효합니다.\n` +
+        `입장 후 채널을 떠나지 마세요!\n\n` +
+        `🌐 구독 관리 및 AI 분석 대시보드:\n` +
+        `👉 ${SITE_URL()}/dashboard`;
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: telegramId, text, parse_mode: "Markdown" }),
+      });
+      console.log("[Telegram] 기존 초대 링크 재발송:", telegramId);
+      return prevInviteLink;
     }
 
-    // 2. 새 1회용 초대 링크 생성
+    // 2. 기존 링크 없을 때만 새 1회용 초대 링크 생성
     const expireUnix = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7; // 7일 유효
     const inviteRes = await fetch(
       `https://api.telegram.org/bot${token}/createChatInviteLink`,
