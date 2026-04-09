@@ -216,24 +216,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         # 2. 유료/체험 구독자면 VIP 초대 링크 발송
                         if plan not in ("free",) and result.get("status") == "active":
                             try:
-                                expires_unix = None
-                                if expires_at:
-                                    from datetime import timezone
-                                    dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-                                    expires_unix = int(dt.timestamp())
-
-                                invite = await context.bot.create_chat_invite_link(
-                                    chat_id=settings.TELEGRAM_VIP_CHANNEL_ID,
-                                    member_limit=1,
-                                    expire_date=int(datetime.now().timestamp()) + 60 * 60 * 24 * 7
-                                )
-                                link_url = invite.invite_link
-
                                 plan_display = "7일 무료 체험" if plan == "trial" else plan.upper()
                                 expires_display = (
                                     datetime.fromisoformat(expires_at.replace("Z", "")).strftime("%Y년 %m월 %d일")
                                     if expires_at else "무제한"
                                 )
+
+                                # 기존 pending_invite_link 있으면 재발송 (새 링크 생성 금지 — 중복 방지)
+                                existing_link = result.get("pending_invite_link")
+                                if existing_link:
+                                    link_url = existing_link
+                                    logger.info(f"♻️ [LinkComplete] 기존 초대 링크 재발송: {name} ({chat_id})")
+                                else:
+                                    invite = await context.bot.create_chat_invite_link(
+                                        chat_id=settings.TELEGRAM_VIP_CHANNEL_ID,
+                                        member_limit=1,
+                                        expire_date=int(datetime.now().timestamp()) + 60 * 60 * 24 * 7
+                                    )
+                                    link_url = invite.invite_link
+                                    logger.info(f"🎫 [LinkComplete] 신규 초대 링크 발송: {name} ({chat_id})")
 
                                 invite_msg = (
                                     f"🎉 *VIP 채널에 입장하세요*\n\n"
@@ -245,7 +246,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     f"입장 후 채널을 떠나지 마세요!"
                                 )
                                 await context.bot.send_message(chat_id=chat_id, text=invite_msg, parse_mode="Markdown")
-                                logger.info(f"🎫 [LinkComplete] VIP 초대 링크 발송 완료: {name} ({chat_id})")
                             except Exception as e:
                                 logger.error(f"⚠️ [LinkComplete] VIP 초대 링크 발송 실패: {e}")
                         return

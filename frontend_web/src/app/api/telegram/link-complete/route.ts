@@ -59,12 +59,17 @@ export async function POST(request: Request) {
 
     // 2. 텔레그램 전용 계정 병합 처리
     const telegramOnlyUser = await db
-      .prepare("SELECT id FROM users WHERE id = ?")
+      .prepare("SELECT id, pending_invite_link FROM users WHERE id = ?")
       .bind(telegramUserId)
-      .first<{ id: string }>();
+      .first<{ id: string; pending_invite_link: string | null }>();
+
+    let inheritedInviteLink: string | null = null;
 
     if (telegramOnlyUser) {
       console.log("[LinkComplete] 텔레그램 전용 계정 발견 — 병합 시작:", telegramUserId);
+
+      // 기존 초대 링크 보존 (병합 전 텔레그램 계정에 있던 링크)
+      inheritedInviteLink = telegramOnlyUser.pending_invite_link;
 
       const webSub = await db
         .prepare("SELECT plan, status, expires_at FROM subscriptions WHERE user_id = ?")
@@ -108,12 +113,16 @@ export async function POST(request: Request) {
       console.log("[LinkComplete] 병합 완료 — 텔레그램 계정 삭제:", telegramUserId);
     }
 
-    // 3. 웹 유저에 telegram_id, telegram_name 저장
+    // 3. 웹 유저에 telegram_id, telegram_name 저장 + 기존 초대 링크 계승
     await db
       .prepare(
-        "UPDATE users SET telegram_id = ?, telegram_name = ?, name = COALESCE(name, ?), image = COALESCE(image, ?) WHERE id = ?"
+        `UPDATE users SET
+           telegram_id = ?, telegram_name = ?,
+           name = COALESCE(name, ?), image = COALESCE(image, ?),
+           pending_invite_link = COALESCE(pending_invite_link, ?)
+         WHERE id = ?`
       )
-      .bind(chat_id, telegramName, name, "", webUserId)
+      .bind(chat_id, telegramName, name, "", inheritedInviteLink, webUserId)
       .run();
 
     // 4. 토큰 삭제
@@ -122,18 +131,19 @@ export async function POST(request: Request) {
       .bind(token)
       .run();
 
-    // 5. 구독 정보 반환 (VIP 초대 링크는 worker에서 성공 메시지 후 발송)
-    const finalSub = await db
-      .prepare("SELECT plan, status, expires_at FROM subscriptions WHERE user_id = ?")
+    // 5. 구독 정보 + pending_invite_link 반환 (중복 링크 생성 방지)
+    const finalUser = await db
+      .prepare("SELECT plan, status, expires_at, pending_invite_link FROM subscriptions LEFT JOIN users ON subscriptions.user_id = users.id WHERE subscriptions.user_id = ?")
       .bind(webUserId)
-      .first<{ plan: string; status: string; expires_at: string | null }>();
+      .first<{ plan: string; status: string; expires_at: string | null; pending_invite_link: string | null }>();
 
     return NextResponse.json({
       success: true,
       userId: webUserId,
-      plan: finalSub?.plan ?? "free",
-      status: finalSub?.status ?? "active",
-      expires_at: finalSub?.expires_at ?? null,
+      plan: finalUser?.plan ?? "free",
+      status: finalUser?.status ?? "active",
+      expires_at: finalUser?.expires_at ?? null,
+      pending_invite_link: finalUser?.pending_invite_link ?? null,
     });
   } catch (error) {
     console.error("Failed to complete telegram link:", error);
