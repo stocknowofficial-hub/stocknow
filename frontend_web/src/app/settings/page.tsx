@@ -154,6 +154,21 @@ export default async function SettingsPage() {
                 <ReferralCodeInput alreadyApplied={!!referredBy} />
               </div>
 
+              {/* 고객센터 카드 */}
+              <div className="p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
+                <h3 className="text-base font-bold mb-2">고객센터</h3>
+                <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                  오류 신고, 환불 요청, 기타 문의사항은 이메일로 남겨주세요. 영업일 기준 1~2일 내 답변 드립니다.<br />
+                  <span className="text-emerald-400 font-medium">🎁 버그 제보 시 확인 후 구독 기간 7일 연장 혜택을 드립니다.</span>
+                </p>
+                <a
+                  href="mailto:stocknow.official@gmail.com?subject=[Stock Now] 문의합니다"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium hover:bg-white/10 transition-colors"
+                >
+                  ✉️ stocknow.official@gmail.com
+                </a>
+              </div>
+
               {/* 계정 관리 카드 */}
               <div className="p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
                 <h3 className="text-base font-bold mb-4">계정 관리</h3>

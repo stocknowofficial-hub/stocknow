@@ -5,13 +5,26 @@ import { PLANS } from '@/lib/plans';
 
 interface PlanSelectorProps {
   onClose: () => void;
+  isRenewal?: boolean;
+  currentExpiresAt?: string | null; // ISO string
 }
 
-export function PlanSelector({ onClose }: PlanSelectorProps) {
+export function PlanSelector({ onClose, isRenewal = false, currentExpiresAt }: PlanSelectorProps) {
   const [selected, setSelected] = useState<string>('annual');
   const [loading, setLoading] = useState(false);
 
   const activePlans = Object.values(PLANS);
+
+  // 연장 시 선택한 플랜 기준 새 만료일 계산
+  const calcNewExpiry = (planId: string): string | null => {
+    if (!isRenewal || !PLANS[planId]) return null;
+    const base = currentExpiresAt && new Date(currentExpiresAt) > new Date()
+      ? new Date(currentExpiresAt)
+      : new Date();
+    const next = new Date(base);
+    next.setMonth(next.getMonth() + PLANS[planId].months);
+    return next.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  };
 
   const handlePayment = async () => {
     setLoading(true);
@@ -43,7 +56,7 @@ export function PlanSelector({ onClose }: PlanSelectorProps) {
       <div className="w-full max-w-md bg-[#111115] border border-white/10 rounded-3xl p-8 shadow-2xl">
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold">플랜 선택</h3>
+          <h3 className="text-xl font-bold">{isRenewal ? '구독 연장' : '플랜 선택'}</h3>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
@@ -108,13 +121,19 @@ export function PlanSelector({ onClose }: PlanSelectorProps) {
 
         {/* 선택 플랜 요약 */}
         {selected && PLANS[selected] && (
-          <div className="mb-6 p-4 rounded-2xl bg-black/40 border border-white/5">
+          <div className="mb-6 p-4 rounded-2xl bg-black/40 border border-white/5 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-400">{PLANS[selected].name}</span>
               <span className="font-bold text-white">
                 {PLANS[selected].price.toLocaleString()}원
               </span>
             </div>
+            {isRenewal && calcNewExpiry(selected) && (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                <span>📅</span>
+                <span>{calcNewExpiry(selected)}까지 연장됩니다</span>
+              </div>
+            )}
           </div>
         )}
 

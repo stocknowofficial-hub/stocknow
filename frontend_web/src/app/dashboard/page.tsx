@@ -9,6 +9,9 @@ import { PaymentBanner } from "@/components/PaymentBanner";
 import { WhaleFeedPanel, KR_TABS, US_TABS, type Sections } from "@/components/WhaleFeedPanel";
 import { CopyButton } from "@/components/CopyButton";
 import { Suspense } from "react";
+import Link from "next/link";
+
+const CURRENT_VERSION = "v1.1.0";
 
 function formatKST(utcString: string | null) {
   if (!utcString) return null;
@@ -192,13 +195,21 @@ export default async function DashboardPage({
                 </h2>
                 <p className="text-gray-500 text-sm">오늘은 국내 거래소 고래 수급이 활발합니다.</p>
               </div>
-              <span className={`shrink-0 px-3 py-1.5 rounded-full border font-medium text-xs flex items-center gap-1.5 ${!isPaid
-                ? "bg-white/5 text-gray-400 border-white/10"
-                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${!isPaid ? "bg-gray-500" : "bg-emerald-500 animate-pulse"}`} />
-                {planDisplay}
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`px-3 py-1.5 rounded-full border font-medium text-xs flex items-center gap-1.5 ${!isPaid
+                  ? "bg-white/5 text-gray-400 border-white/10"
+                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${!isPaid ? "bg-gray-500" : "bg-emerald-500 animate-pulse"}`} />
+                  {planDisplay}
+                </span>
+                <Link
+                  href="/changelog"
+                  className="text-[11px] text-gray-600 hover:text-purple-400 transition-colors font-mono"
+                >
+                  {CURRENT_VERSION}
+                </Link>
+              </div>
             </header>
 
             <div className="space-y-4 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
@@ -224,7 +235,7 @@ export default async function DashboardPage({
                 </p>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <TelegramLinkButton isLinked={telegramLinked} />
-                  {!isPaid && <PremiumUpgradeButton />}
+                  <PremiumUpgradeButton isRenewal={isPaid} expiresAt={subscription?.expires_at} />
                 </div>
               </div>
 

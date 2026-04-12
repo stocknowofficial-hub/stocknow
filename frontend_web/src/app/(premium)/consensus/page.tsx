@@ -115,7 +115,7 @@ async function getConsensusData() {
     const db = ctx?.env?.DB;
     if (!db) return null;
 
-    const [dirRes, targetRes, sourcesRes, reportRes, reportCountRes, accRes, accStats, lastWeekTargetRes, summaryRes, bestTradeRes, keyPointsRes, tableRes] = await Promise.all([
+    const [dirRes, targetRes, sourcesRes, reportRes, reportCountRes, accRes, accStats, lastWeekTargetRes, summaryRes, bestTradeRes, keyPointsRes, tableRes, sourceBreakdownRes] = await Promise.all([
       db.prepare(`SELECT direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY direction`).all(),
       db.prepare(`SELECT target, target_code, direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY target, direction`).all(),
       db.prepare(`SELECT target, direction, source, date(created_at) as date FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).all(),
@@ -128,6 +128,7 @@ async function getConsensusData() {
       db.prepare(`SELECT target, price_change_pct, direction FROM predictions WHERE result = 'hit' AND price_change_pct IS NOT NULL ORDER BY price_change_pct DESC LIMIT 1`).first().catch(() => null),
       db.prepare(`SELECT target, key_points FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' AND key_points IS NOT NULL`).all(),
       db.prepare(`SELECT id, source, source_desc, source_url, target, target_code, direction, confidence, action, expires_at, created_at FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' ORDER BY CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC LIMIT 300`).all(),
+      db.prepare(`SELECT source, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY source`).all(),
     ]);
     const accStatsTyped = accStats as { total: number; hits: number; avg_hit_pct: number | null; avg_miss_pct: number | null } | null;
 
@@ -208,10 +209,23 @@ async function getConsensusData() {
 
     const reportTotal = (reportCountRes as { cnt: number } | null)?.cnt ?? 0;
 
+    // 소스별 건수 집계
+    let reportSourceCount = 0;
+    let briefingCount = 0;
+    for (const row of sourceBreakdownRes.results as Array<{ source: string; cnt: number }>) {
+      if (row.source === 'briefing_kr' || row.source === 'briefing_us') {
+        briefingCount += row.cnt;
+      } else {
+        reportSourceCount += row.cnt;
+      }
+    }
+
     return {
       weekLabel: getWeekLabel(),
       reportCount: total,
       reportTotal,
+      reportSourceCount,
+      briefingCount,
       tableRows: tableRes.results,
       direction: { up: dirMap.up, down: dirMap.down, sideways: dirMap.sideways, total },
       topTargets,
@@ -262,7 +276,7 @@ export default async function ConsensusPage() {
     );
   }
 
-  const { direction, topTargets, lastWeekTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, reportTotal, tableRows, macro, weeklySummary, bestTrade, topKeyPoints, wallstreet, sources } = data;
+  const { direction, topTargets, lastWeekTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, reportTotal, reportSourceCount, briefingCount, tableRows, macro, weeklySummary, bestTrade, topKeyPoints, wallstreet, sources } = data;
 
   const fg = macro?.fear_greed ?? null;
   const vix = macro?.vix ?? null;
@@ -333,7 +347,7 @@ export default async function ConsensusPage() {
         {/* 헤더 */}
         <div className="mb-8">
           <h1 className="text-2xl lg:text-3xl font-bold text-white mb-2">🧭 주간 컨센서스</h1>
-          <p className="text-sm text-gray-500">{weekLabel} · 증권사 리포트 {reportItems.length}건 · 트럼프 SNS {trumpItems.length}건</p>
+          <p className="text-sm text-gray-500">{weekLabel} · 증권사 리포트 {reportSourceCount}건 · AI 브리핑 {briefingCount}건</p>
           <p className="text-[11px] text-gray-600 mt-1">※ 투자 조언이 아닙니다. 참고 목적으로만 활용하세요.</p>
         </div>
 
