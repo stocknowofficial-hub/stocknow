@@ -21,7 +21,7 @@ class GeminiSearchPro:
 
     def _generate_sync(self, prompt):
         return self.client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3-flash-preview',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2, # 정보를 다루므로 창의성(1.0)보다 정확성(0.2) 중시
@@ -168,7 +168,7 @@ class GeminiSearchPro:
                 # Assuming simple upload works for now.
                 
                 response = self.client.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3-flash-preview',
                     contents=[prompt, uploaded_file],
                     config=types.GenerateContentConfig(temperature=0.2)
                 )

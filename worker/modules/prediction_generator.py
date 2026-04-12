@@ -14,50 +14,32 @@ from common.config import settings
 
 REPORT_PREDICTION_PROMPT = """
 다음 증권사 리포트를 분석해서, 핵심 근거마다 영향받는 종목별 예측 카드 배열을 만들어줘.
-ETF 수준뿐 아니라 실제로 사고팔 수 있는 개별 종목까지 최대한 많이 뽑아줘.
+ETF 수준뿐 아니라 실제로 사고팔 수 있는 개별 종목까지 가장 적합한 대상을 자유롭고 정확하게 뽑아줘.
 
 리포트 출처: {source}
 리포트 내용:
 {text}
 
-규칙:
-- 리포트의 핵심 근거(key insight)마다 영향받는 대표 종목/ETF 각각 1장씩 카드 생성 (최대 5개)
-- 같은 근거로 여러 종목이 영향받더라도 가장 대표적인 종목 1개만 선택 (중복 근거 카드 금지)
-- 방향이 up 또는 down으로 명확한 것만 포함. sideways(횡보/영향 미미/불확실)는 절대 금지
-- "시장 불확실성", "변동성 확대" 같이 모호한 예측 금지
-- 한국 ETF는 6자리 코드, 미국 개별주는 티커(XOM, TLT, SPY 등)를 target_code로 사용
-- timeframe: 7일 / 14일 / 30일 중 근거에 맞게 선택
-- confidence: 리포트에서 강하게 주장 → high, 가능성 언급 → medium, 간접 영향 → low
-- target 이름은 반드시 풀네임 사용 (예: "반도체" → "KODEX 반도체", "원유" → "KODEX WTI원유선물")
-- key_points는 반드시 리포트에서 인용한 구체적 수치·사실 포함 (예: "코스피 선행 PER 8배 하회", "WTI 100달러 평균 유지 140일"). 추상적 표현("불확실성 증가" 등) 금지
-- related_stocks의 role이 "매도"인 경우 reason에 반드시 메인 종목과의 관계(예: "섹터 로테이션 - 반도체 자금이 은행으로 이동") 명시
-- related_stocks는 가능하면 2개 이상 (메인 타겟이 ETF인 경우 해당 섹터 대표 개별 종목을 우선 포함)
-- 예: KODEX 건설 카드 → related_stocks에 현대건설(000720), GS건설(006360) 등 개별주 포함 권장
-
-[한국 ETF 코드] — target 이름에 아래 풀네임 그대로 사용
-KODEX 200(코스피): 069500 / KODEX 코스닥150: 229200 / KODEX S&P500: 379800 / KODEX 나스닥100: 133690
-KODEX WTI원유선물: 261220 / KODEX 골드선물: 132030 / KODEX K-방산: 490090 / KODEX 반도체: 091160
-KODEX 2차전지: 305720 / KODEX 바이오: 244580 / KODEX 은행: 091170 / KODEX 자동차: 091180
-KODEX 조선: 139220 / KODEX 태양광: 403870 / 삼성전자: 005930 / SK하이닉스: 000660 / 현대차: 005380
-
-[미국 ETF/종목]
-- 채권: TLT(장기국채), IEF(중기국채), TIP(물가연동채)
-- 원유/에너지: USO(WTI원유), XOM(엑손모빌), CVX(쉐브론), OXY, COP
-- 금: GLD, IAU, GDX(금광주)
-- S&P500: SPY, VOO / 나스닥: QQQ / 소형주: IWM
-- 방산: LMT, RTX, GD, NOC
-- 사이버보안: PANW, CRWD, CHKP
-- 반도체: NVDA, AMD, AVGO, INTC, ASML
-- 빅테크: AAPL, MSFT, META, GOOGL, AMZN, TSLA
-- 금융: JPM, GS, BAC, BRK.B
-- 인버스/헤지: SH(S&P500 인버스), PSQ(나스닥 인버스), SQQQ
+[분석 및 타겟 선정 규칙]
+1. 리포트의 핵심 근거(key insight)마다 영향받는 대표 종목/ETF 각각 1장씩 카드 생성 (최대 5개).
+2. 같은 근거로 여러 종목이 영향받더라도 가장 대장격인 종목 1개만 메인 target으로 선정 (중복 근거 카드 금지).
+3. 방향이 up 또는 down으로 명확한 것만 포함. sideways(횡보/영향 미미/불확실)나 모호한 예측("변동성 확대" 등)은 절대 제외할 것.
+4. 종목/ETF 자율 선정 및 코드 매칭 (매우 중요):
+   - 리포트에서 특정 섹터/테마만 언급했다면, 해당 섹터를 대표하는 가장 유동성이 풍부한 실제 상장 ETF(예: KODEX, TIGER 등)나 시가총액 1위 대장주를 알아서 추론하여 타겟으로 잡을 것.
+   - 한국 주식/ETF의 경우 target_code에 '정확한 6자리 한국거래소(KRX) 종목코드'(예: 005930, 261220)를 입력할 것.
+   - 미국 주식/ETF의 경우 target_code에 '정확한 공식 티커'(예: XOM, SPY, TLT)를 입력할 것.
+   - 존재하지 않는 가상의 ETF나 코드를 지어내지 말 것.
+5. timeframe은 7 / 14 / 30 (일) 중 근거의 성격(단기 이슈 vs 구조적 변화)에 맞게 선택.
+6. confidence는 리포트의 어조를 반영(강한 확신/단정적 표현 → high, 가능성/전망 수준 → medium, 간접적 수혜/영향 → low).
+7. key_points는 리포트에 등장하는 '구체적 수치, 가격, 데이터, 팩트'를 반드시 포함하여 작성. 추상적 표현 금지.
+8. related_stocks는 메인 타겟과 연관된 종목을 최소 2개 이상 포함하며, 메인이 ETF면 개별 대장주를, 메인이 개별주면 경쟁사나 헷지용 ETF를 추천할 것. role이 "매도"인 경우 reason에 메인 타겟과의 관계(예: 자금 이동, 대체재 등)를 명시할 것.
 
 JSON 배열만 출력 (설명 없이, 코드블록 없이):
 [
   {{
     "prediction": "[{source}] 구체적 예측 (예: '[BlackRock] 중동 확전 → 엑손모빌 단기 급등 전망')",
     "direction": "up 또는 down",
-    "target": "종목명 또는 ETF명",
+    "target": "정확한 종목명 또는 ETF명",
     "target_code": "미국 티커(예: XOM) 또는 한국 6자리 코드(예: 261220)",
     "basis": "이 종목이 영향받는 핵심 근거 한 줄 (리포트 내용과 직접 연결)",
     "key_points": [
@@ -66,8 +48,8 @@ JSON 배열만 출력 (설명 없이, 코드블록 없이):
       "단기 시장 반응 예상"
     ],
     "related_stocks": [
-      {{"name": "같은 테마 유사 종목", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}},
-      {{"name": "헤지 또는 반대 포지션 종목", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유"}}
+      {{"name": "같은 테마 유사 종목", "code": "티커 또는 6자리 코드", "role": "매수 또는 매도 또는 헤지", "reason": "이유 한 줄"}},
+      {{"name": "헤지 또는 반대 포지션 종목", "code": "티커 또는 6자리 코드", "role": "매수 또는 매도 또는 헤지", "reason": "이유 한 줄"}}
     ],
     "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
     "action_reason": "이유 한 줄",
@@ -83,40 +65,40 @@ JSON 배열만 출력 (설명 없이, 코드블록 없이):
 """
 
 TRUMP_PREDICTION_PROMPT = """
-트럼프의 Truth Social 게시글을 분석해서, 가장 직접적으로 영향받을 종목 1~2개에 대한 예측 카드 배열을 만들어줘.
+트럼프 Truth Social 게시글에 대한 시장 전략 분석 결과를 바탕으로, 가장 직접적으로 영향받을 구체적인 상장 종목(개별주 또는 ETF) 1~2개에 대한 예측 카드 배열을 만들어줘.
 
-게시글 내용:
+트럼프 발언 분석 텍스트:
 {text}
 
-규칙:
-- 주식/경제/정책과 무관한 게시글(음식, 스포츠, 개인 일상 등)이면: {{"skip": true}} 만 반환
-- 발언 내용에서 가장 직접적으로 영향받을 종목만 선정 (최대 2개)
-- 방향이 up 또는 down으로 명확한 것만 포함. 불확실하면 제외
-- 미국 개별주: 정확한 티커 사용 (예: 관세→TSLA, 에너지→XOM, 반도체→NVDA 등 발언과 직결된 종목)
-- 한국 ETF: 6자리 코드 사용 (코스피: 069500 / K-방산: 490090 / 반도체: 091160 / WTI원유: 261220)
+[분석 및 타겟 선정 규칙]
+1. 필터링: 주식/경제/정책과 무관한 게시글(음식, 스포츠, 개인 일상, 단순 정치 비난 등)이면 [{{"skip": true}}] 만 반환할 것.
+2. 타겟 구체화 (매우 중요): '비료 관련주', '방산 기업', '친환경 섹터' 같은 두리뭉실한 범주형 단어는 절대 target으로 사용 금지. 반드시 해당 이슈로 가장 직접적인 영향을 받을 실제 상장된 대장주 기업명(예: CF Industries, 록히드마틴 등)이나 대표 ETF를 스스로 추론하여 구체적으로 명시할 것.
+3. 코드 매칭: target_code에는 실제 미국 주식 티커(예: CF, MOS, LMT) 또는 한국 6자리 코드(예: 069500)를 정확히 입력할 것. 가상의 코드를 지어내지 말 것.
+4. 방향이 up 또는 down으로 명확한 것만 포함. 불확실하면 제외.
+5. 트럼프 발언의 특성상 단기 테마성 움직임이 크므로 timeframe은 가급적 짧게(7일 등) 잡고, confidence는 발언의 강도에 따라 조절할 것.
 
 JSON 배열만 출력 (설명 없이, 코드블록 없이):
 [
   {{
-    "prediction": "[트럼프] 발언 핵심 → 종목명 단기 전망 (1줄)",
+    "prediction": "[트럼프] 발언 핵심 → 특정 종목명 단기 전망 (1줄)",
     "direction": "up 또는 down",
-    "target": "종목명 또는 ETF명",
-    "target_code": "미국 티커 또는 한국 6자리 코드",
-    "basis": "이 종목이 영향받는 핵심 근거 한 줄",
+    "target": "정확한 상장 종목명 또는 ETF명 (예: CF Industries)",
+    "target_code": "미국 티커(예: CF) 또는 한국 6자리 코드",
+    "basis": "이 특정 종목이 영향받는 핵심 근거 한 줄",
     "key_points": [
-      "트럼프 발언 핵심: ...",
-      "이 종목이 수혜/피해받는 구체적 이유",
-      "예상 시장 반응"
+      "트럼프 발언 핵심: (원문 뉘앙스 반영)",
+      "이 특정 기업이 수혜/피해받는 구체적 비즈니스적 이유",
+      "예상 시장/투심 반응"
     ],
     "related_stocks": [
-      {{"name": "같은 섹터 유사 종목", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}}
+      {{"name": "같은 섹터 내 경쟁사 또는 유사 수혜주", "code": "티커/코드", "role": "매수 또는 매도 또는 헤지", "reason": "이유 한 줄"}}
     ],
     "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
     "action_reason": "이유 한 줄",
     "trade_setup": {{
-      "entry": "진입 조건",
+      "entry": "단기 진입 조건 (예: '개장 직후 변동성 활용')",
       "stop_loss": "손절 기준",
-      "target": "목표"
+      "target": "단기 목표"
     }},
     "timeframe": 7,
     "confidence": "high 또는 medium 또는 low"
@@ -159,7 +141,7 @@ def _call_gemini_sync(client, prompt: str) -> dict | None:
     """
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3-flash-preview',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -198,7 +180,7 @@ def _call_gemini_with_pdf(client, file_path: str, prompt: str) -> dict | None:
         print(f"✅ [PredGen] 업로드 완료: {uploaded.name}")
 
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3-flash-preview',
             contents=[
                 types.Content(parts=[
                     types.Part(file_data=types.FileData(
@@ -417,41 +399,42 @@ def _format_et(utc_iso: str | None) -> str:
 
 
 BRIEFING_PREDICTION_PROMPT = """
-다음 시장 브리핑을 분석해서 단기(1~2일) 예측 카드를 JSON으로 만들어줘.
+다음 시장 브리핑을 분석해서 단기(1~2일) 예측 카드를 1개의 JSON 객체로 만들어줘.
 
 시장: {market}
 브리핑 종류: {subtype}
 브리핑 내용:
 {text}
 
-규칙:
-- 브리핑에서 가장 직접적으로 영향받을 자산 1개 선택
-  - 특정 종목이 명확히 언급됐으면 그 종목 선택 (예: 엔비디아, 델타항공, 삼성전자)
-  - 특정 종목 없으면 섹터/지수 ETF 선택 (예: KODEX 반도체, SOXL, QQQ)
-  - target은 실제 상품명 또는 종목명 사용 ("반도체" 같은 카테고리명 금지)
-- target_code: 실제 티커 또는 종목코드 (미국 주식 → 티커, 한국 → 6자리 코드, ETF → ETF 코드)
-  - 참고 코드: 코스피ETF 069500 / S&P500ETF 379800 / 나스닥ETF 133690 / KODEX반도체 091160 / KODEX방산 490090
-  - 삼성전자 005930 / SK하이닉스 000660 / 현대차 005380
-  - 미국 개별주: NVDA / AMD / AVGO / AAPL / MSFT / META / TSLA / DAL / XOM 등 티커 그대로
-- related_stocks: 브리핑에서 함께 언급된 수혜/피해 종목 1~2개 (없으면 빈 배열)
-- 방향이 불분명하면: {{"skip": true}} 반환
-- 예측 기간 timeframe: 2 고정
+[분석 및 타겟 선정 규칙]
+1. 타겟 선정: 브리핑 내용 중 가장 구체적인 모멘텀(상승/하락률, 계약, 실적 등)이 명시된 가장 강력한 자산 딱 1개만 메인 target으로 선택.
+   - 특정 대장주가 명확히 언급됐으면 그 종목 최우선 선택 (예: 삼성전자, 브로드컴, 엔비디아)
+   - 개별주 언급 없이 거시경제/섹터만 언급됐으면 해당 섹터 대표 ETF 선택 (예: KODEX 반도체, KODEX WTI원유선물)
+   - "반도체", "기술주" 같은 두리뭉실한 카테고리명 금지. 반드시 실제 거래 가능한 종목명/ETF 풀네임 사용.
+2. 코드 매칭: target_code는 실제 존재하는 정확한 티커 또는 6자리 코드만 사용. 모르면 null. 가짜 코드 생성 절대 금지.
+   - 참고: KODEX 200(069500), KODEX 반도체(091160), KODEX WTI원유선물(261220), 삼성전자(005930), SK하이닉스(000660)
+3. key_points: 브리핑에 등장하는 구체적 수치(예: CPI 3.3%, 6.21% 급등, WTI 98달러 등)를 반드시 포함하여 작성.
+4. 예외 처리: 방향이 불분명하거나 단순 요약만 있다면 {{"skip": true}} 반환.
 
-JSON만 출력 (설명 없이):
+JSON 객체만 1개 출력 (마크다운 코드블록 절대 금지, 설명 없이 순수 JSON 텍스트만 출력):
 {{
-  "prediction": "예측 요약 (예: '[US개장] 엔비디아 단기 강세 전망')",
-  "direction": "up 또는 down 또는 sideways",
-  "target": "종목명 또는 ETF 풀네임",
+  "prediction": "[{market} {subtype}] 핵심 이슈 → 종목명 단기 전망 (1줄)",
+  "direction": "up 또는 down",
+  "target": "정확한 상장 종목명 또는 ETF 풀네임",
   "target_code": "티커 또는 6자리 코드 또는 null",
-  "basis": "핵심 근거 한 줄",
-  "key_points": ["구체적 수치 포함 근거1", "근거2", "근거3"],
+  "basis": "이 종목이 영향받는 브리핑 내 핵심 근거 한 줄",
+  "key_points": [
+    "구체적 수치나 팩트 포함 근거 1",
+    "이 종목에 미치는 영향 2",
+    "단기 시장/투심 예상 3"
+  ],
   "related_stocks": [
-    {{"name": "종목명", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}}
+    {{"name": "수혜/피해 연관 종목명", "code": "티커 또는 코드", "role": "매수 / 매도 / 헤지 중 하나", "reason": "이유 한 줄"}}
   ],
   "action": "매수 고려 / 비중 확대 / 관망 / 비중 축소 / 매도 고려 중 하나",
   "action_reason": "이유 한 줄",
   "trade_setup": {{
-    "entry": "진입 조건",
+    "entry": "진입 조건 (예: '시초가 변동성 활용', '조정 시 매수')",
     "stop_loss": "손절 기준",
     "target": "목표"
   }},
@@ -502,17 +485,17 @@ async def generate_prediction_from_briefing(market: str, subtype: str, briefing_
     await _post_prediction(card, source, source_desc, "")
 
 
-async def generate_prediction_from_trump(post_text: str, post_url: str, post_time: str):
+async def generate_prediction_from_trump(analysis_text: str, post_url: str, post_time: str):
     """
-    트럼프 Truth Social 게시글 → Gemini 분석 → 섹터별 예측 카드 배열 생성 → D1 저장
+    트럼프 발언 분석 텍스트(Step 1 결과) → Gemini 분석 → 섹터별 예측 카드 배열 생성 → D1 저장
     sideways(횡보) 예측은 저장하지 않음
     """
     if not settings.GOOGLE_API_KEY:
         return
 
-    print(f"🔮 [PredGen] 트럼프 게시글 분석 시작...")
+    print(f"🔮 [PredGen] 트럼프 예측 카드 생성 시작...")
 
-    prompt = TRUMP_PREDICTION_PROMPT.format(text=post_text)
+    prompt = TRUMP_PREDICTION_PROMPT.format(text=analysis_text)
     try:
         client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         loop = asyncio.get_running_loop()
@@ -527,8 +510,14 @@ async def generate_prediction_from_trump(post_text: str, post_url: str, post_tim
         print(f"⚠️ [PredGen] Gemini 오류 (트럼프): {e}")
         return
 
-    # skip 신호 처리 (dict로 반환된 경우)
-    if not result or (isinstance(result, dict) and result.get("skip")):
+    # skip 신호 처리 (dict 또는 배열 모두 처리)
+    if not result:
+        print(f"💨 [PredGen] 트럼프 게시글 — 결과 없음 스킵")
+        return
+    if isinstance(result, dict) and result.get("skip"):
+        print(f"💨 [PredGen] 트럼프 게시글 — 경제 무관 스킵")
+        return
+    if isinstance(result, list) and len(result) > 0 and result[0].get("skip"):
         print(f"💨 [PredGen] 트럼프 게시글 — 경제 무관 스킵")
         return
 

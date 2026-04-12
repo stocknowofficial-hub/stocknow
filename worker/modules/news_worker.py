@@ -171,21 +171,19 @@ class NewsWorker:
         # C. SNS 분석 (SNS_ANALYSIS) - 트럼프 전담
         # -----------------------------------------------------
         elif msg_type == 'SNS_ANALYSIS':
-            author = msg_data.get('author', 'Unknown')
             text = msg_data.get('text', '')
             original_url = msg_data.get('url', '')
-            post_time = msg_data.get('time') # ✅ 시간 정보 추출
+            post_time = msg_data.get('time')
 
-            # 🔮 예측 카드 생성 (백그라운드)
-            asyncio.create_task(
-                generate_prediction_from_trump(
-                    post_text=text,
-                    post_url=original_url,
-                    post_time=post_time or '',
-                )
+            # Step 1: TRUMP_ANALYSIS → 텔레그램 메시지 + 예측 카드 기반 텍스트 생성
+            # Step 2: generate_prediction_from_trump → run() 루프에서 분석 텍스트 기반으로 실행
+            return await self.gemini_pro.search_and_summarize(
+                text,
+                link_keyword="Trump Truth Social",
+                mode='TRUMP_ANALYSIS',
+                original_url=original_url,
+                post_time=post_time
             )
-
-            query = text
         # D. 주간 리포트 분석 (REPORT_ANALYSIS)
         # -----------------------------------------------------
         elif msg_type == 'REPORT_ANALYSIS':
@@ -270,6 +268,14 @@ class NewsWorker:
                                             elif msg_type == 'SNS_ANALYSIS':
                                                 title = f"🏛️ [트럼프 긴급 포착]"
                                                 category = "TRUMP"
+                                                # 🔮 트럼프 예측 카드 생성 (Step 2 - 분석 텍스트 기반)
+                                                asyncio.create_task(
+                                                    generate_prediction_from_trump(
+                                                        analysis_text=summary,
+                                                        post_url=data.get('url', ''),
+                                                        post_time=data.get('time', ''),
+                                                    )
+                                                )
                                             elif msg_type == 'REPORT_ANALYSIS':
                                                 mk_source = data.get('source', 'Analyst')
                                                 title = f"📑 [{mk_source} 리포트 Output]"

@@ -3,51 +3,50 @@ def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=No
     [GeminiSearch] 개별 종목 급등/급락 분석용 프롬프트
     market_context: 과거 브리핑/트럼프 분석 요약본 (Recall)
     """
-    
+
     context_instruction = ""
     if market_context:
         context_instruction = f"""
     [AI Tutor's Previous Insights (Last 7 Days)]
     Below is a summary of our recent market analysis. check if the current stock movement aligns with our previous predictions.
     {market_context}
-    
+
     [Instruction for 'AI Tutor Note']
-    - If the current news validates any of the insights above, EXPLICITLY QUOTE it in the summary.
-    - **STRICT RULE**: Only include this note if there is a **SPECIFIC KEYWORD MATCH** (e.g., "Trump Defense Spending", "Venezuela Oil", "Bio Fast Track").
-    - **DO NOT** include the note if the connection is vague (e.g., "overall market trend", "sector momentum").
+    - If the current news validates any of the insights above, EXPLICITLY QUOTE it.
+    - **STRICT RULE**: Only include this note if there is a **SPECIFIC KEYWORD MATCH** (e.g., "Trump Defense Spending", "Iran Ceasefire").
+    - **DO NOT** include the note if the connection is vague.
     - IF NO STRONG MATCH -> **OMIT THE NOTE ENTIRELY**.
     - **Language:** The citation MUST BE in **KOREAN**.
-    - Format: "(Stock Now Note: 이 상승은 (날짜) [분석제목]에서 예측한 '핵심내용'과 일치합니다.)"
+    - **Format:** "🎯 **[인사이트 적중]** (날짜) 브리핑에서 짚어드린 '(핵심내용)' 모멘텀이 정확히 시장에 반영되었습니다."
     """
 
     return f"""
     [Task] Perform a Google Search for: "{query}"
-    
+
     {context_instruction}
-    
+
     [Smart Filtering Rules]
-    1. **Time Horizon:**
-       - **Priority:** News from **{yesterday_str}** to **{today_str}** (Last 48 hours).
-       - **Acceptable:** News within the last **7 days**.
-       - **BANNED:** IGNORE any news older than **14 days**.
-    
+    1. **Time Horizon:** Priority: News from **{yesterday_str}** to **{today_str}** (Last 48 hours). BANNED: Older than 14 days.
     2. **Processing Logic:**
        - If <48h news exists -> Use it.
-       - If only <7d news exists -> Use it, but **start the bullet with the date** (e.g., "(1/5) ...").
-       - If NO news in last 7 days -> Look for specific **Sector/Industry** trends active *today*.
-       - If TRULY nothing recent found -> Output "NO_NEWS_FOUND".
+       - If only <7d news exists -> Use it, but **start the bullet with the date** (e.g., "(4/10) ...").
+       - If no recent news -> Look for specific **Sector/Industry** trends active today.
+       - If TRULY nothing found -> Output "NO_NEWS_FOUND".
 
     [Strict Output Rules]
-    1. **Language:** ANSWER IN **KOREAN** (한국어).
+    1. **Language:** ANSWER IN **KOREAN** (한국어). Tone must be sharp, professional, and concise (Trader style).
     2. **Format:** EXACTLY 2 Bullet Points.
-       * Point 1: **[핵심 원인]** One sentence summary of WHY it is rising/falling.
-       * Point 2: **[투자 판단]** One sentence advice (e.g., "추격 매수 자제", "수급 유입 지속으로 긍정적", "단기 과열 주의").
+       * Point 1: **[핵심 원인]** - Explain WHY it is moving using specific facts and numbers (e.g., contract size, target price).
+         - **CRITICAL:** Do NOT write "The stock is rising/falling because...". Just state the trigger facts directly.
+         - Keep sentences short and punchy.
+       * Point 2: **[투자 판단]** - Start with an emoji: 🐂 (Positive/Buy), 🐻 (Negative/Sell), ⚖️ (Neutral/Hold).
+         - Provide one sentence of actionable advice (e.g., "단기 과열 주의. 추격 매수 자제", "수급 유입 지속으로 추가 상승 여력 충분").
     3. **Sentiment Tag:** The LAST LINE must be exactly one of: [Sentiment: Positive], [Sentiment: Negative], or [Sentiment: Neutral].
 
     [Example Output - Success]
-    * [핵심 원인] 정부의 신규 원전 2기 건설 확정 소식에 따른 직접적인 수혜 기대감 반영
-    * [투자 판단] 🐂 **긍정** (기관 대량 수급이 뒷받침되고 있어 추가 상승 여력 있음)
-    (Stock Now Note: ...)
+    * [핵심 원인] 체코 신규 원전 2기 우선협상대상자 선정 등 24조 원 규모 수주 기대감. 2분기 영업이익 15% 상향 조정 리포트 발간이 투심을 자극함.
+    * [투자 판단] 🐂 **긍정** (외국인과 기관의 양매수 수급이 강력하게 유입 중. 추가 모멘텀 유효)
+    🎯 **[인사이트 적중]** 4/8 브리핑에서 짚어드린 '체코 원전 수주전 훈풍' 모멘텀이 정확히 시장에 반영되었습니다.
     [Sentiment: Positive]
 
     [Example Output - Failure]
@@ -72,6 +71,7 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
     - Use distinct emojis for headers.
     - **STRICTLY FORBIDDEN**: Do NOT use bold text (**). Write EVERYTHING in plain text.
     - **Keep it Concise**: Max 3-4 bullet points per section. Avoid long paragraphs.
+    - **Data-Driven (CRITICAL)**: You MUST include specific numbers (%, prices, indices) and EXACT company names/tickers. Do not say "Tech rose". Say "Nvidia (+2.5%) led the tech rally".
     - **Sentiment Tag**: The VERY LAST LINE must be exactly one of: [Sentiment: Positive], [Sentiment: Negative], or [Sentiment: Neutral].
     """
 
@@ -83,39 +83,39 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         prompt = f"""
         {base_rule}
         [Task] Search for "{query}" and write a 'Market Opening Briefing' for Korea.
-        
+
         [Structure]
         1. 📅 [오늘의 일정]
            - Key economic events, earnings releases, or policy announcements today.
         2. 📈 [시장 전망]
-           - Expected market flow based on overnight US market and global sentiment.
+           - Expected market flow based on overnight US market. Include exact index changes (e.g., S&P500 +0.5%).
         3. ⚠️ [리스크 및 변수]
-           - Negative factors, exchange rate risks, or geopolitical issues.
+           - Negative factors, exchange rate risks, or geopolitical issues with specific data.
         4. 🧐 [관전 포인트]
-           - Sectors or themes to watch closely today.
+           - Sectors or themes to watch closely today. Must mention at least 1-2 specific leading stocks (대장주).
         """
-        
+
     elif mode == 'KR_MID':
         header_title = f"🇰🇷 한국 증시 장중 브리핑 ({today_full})"
         prompt = f"""
         {base_rule}
         [Task] Search for "{query}" and write a 'Mid-Day Market Briefing' for Korea.
-        
+
         [CRITICAL VERIFICATION STEP]
         - Before writing, **DOUBLE CHECK** the time of the events.
         - **Common Mistake**: Do NOT confuse "Yesterday's Closing News" with "Today's Mid-Day Flow".
         - Ensure all mentioned stock movements are happening **RIGHT NOW** (Real-time), not result from yesterday.
         - If the news mentions "Market Closed" or "Ended", it is OLD data. SKIP IT.
-        
+
         [Structure]
         1. 📈 [오전 상승 주도]
-           - Top performing sectors/themes and WHY they are rising.
+           - Top performing sectors/themes and WHY. Name the specific leading stocks.
         2. 📉 [오전 약세 흐름]
-           - Weak sectors and reasons for the decline.
+           - Weak sectors and reasons. Name the specific lagging stocks.
         3. 🚀 [특징주 코멘트]
-           - Individual stocks with significant news/movement (Top 2-3).
+           - Individual stocks with significant news/movement (Top 2-3). Must include exact % change.
         4. 📝 [장중 시황 요약]
-           - Summary of KOSPI/KOSDAQ flow and Foreigner/Institution supply status.
+           - Summary of KOSPI/KOSDAQ exact levels and Foreigner/Institution supply status (with numbers).
         """
 
     elif mode == 'KR_CLOSE':
@@ -123,14 +123,14 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         prompt = f"""
         {base_rule}
         [Task] Search for "{query}" and write a 'Market Closing Briefing' for Korea.
-        
+
         [Structure]
         1. 🏁 [마감 총평]
-           - Summary of KOSPI/KOSDAQ closing levels and main drivers.
+           - KOSPI/KOSDAQ closing exact levels, % change, and main drivers.
         2. 🏆 [오늘의 승자/패자]
-           - Best/Worst performing sectors analysis.
+           - Best/Worst performing sectors. Must mention specific company names that drove the sector.
         3. 💡 [내일의 투자 아이디어]
-           - Based on today's flow, what should we prepare for tomorrow?
+           - Based on today's flow, name 1-2 specific themes/stocks to prepare for tomorrow.
         """
 
     # 🇺🇸 미국장
@@ -139,16 +139,16 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         prompt = f"""
         {base_rule}
         [Task] Search for "{query}" and write a 'Market Opening Briefing' for US Market.
-        
+
         [Structure]
         1. 🌅 [오늘의 이슈 & 전망]
-           - Key macro events (Fed, CPI, etc.) and market outlook for today.
+           - Key macro events (Fed, CPI etc. with expected %).
         2. 📊 [유망/하락 예상 섹터]
-           - Which sectors are expected to be strong/weak based on pre-market data.
+           - Expected strong/weak sectors. Must name specific pre-market moving stocks/tickers.
         3. ⚠️ [투자자 유의사항]
-           - Volatility risks, Bond yields, or specific stock warnings.
+           - Volatility risks, Bond yields (exact %), or specific stock warnings.
         4. 💡 [장초반 대응 전략] (Action Plan)
-           - Practical advice: "Buy on dip", "Watch and wait", or "Focus on Tech".
+           - Practical advice with specific targets (e.g., "Focus on AI hardware like NVDA, AMD").
         """
 
     elif mode == 'US_MID':
@@ -156,14 +156,14 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         prompt = f"""
         {base_rule}
         [Task] Search for "{query}" and write a 'Mid-Day Briefing' for US Market.
-        
+
         [Structure]
         1. 📝 [오전장 요약]
-           - Summary of market flow from Opening to now.
+           - Major index flows with current exact % changes.
         2. 🚀 [특징주 & 수급]
-           - Stocks with massive volume or price change today.
+           - Stocks with massive volume/price change. Must include Tickers and exact % changes.
         3. 💡 [남은 시간 대응법] (Action Plan)
-           - How to handle the rest of the trading session?
+           - Actionable advice naming specific sectors or ETFs to watch.
         """
 
     elif mode == 'US_CLOSE':
@@ -171,16 +171,16 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         prompt = f"""
         {base_rule}
         [Task] Search for "{query}" and write a 'Market Closing Briefing' for US Market.
-        
+
         [Structure]
         1. 🏁 [마감 이슈 & 원인]
-           - Why did the market rise/fall today?
+           - Major index closing numbers and exact % changes. The core reason for the move.
         2. 🚀 [오늘의 급등/급락]
-           - Top gainers and losers in major sectors.
+           - Top gainers and losers. Must include specific Tickers and exact % changes.
         3. 🎓 [오늘의 교훈] (Lessons)
            - What should investors learn from today's market?
         4. 🌙 [내일 준비 & 애프터마켓]
-           - Key events to watch for tomorrow.
+           - Key events for tomorrow or significant after-market movers (with exact %).
         """
 
     # 🏛️ 트럼프 분석 (Senior Strategist Ver. 2.1 - Filter 강화 & 요약 추가)
