@@ -258,15 +258,14 @@ async def run_daily_update(market: str):
             (direction == "down" and (prev_peak is None or best_pct < prev_peak))
         )
 
-        if not is_new_peak:
-            continue  # peak 변화 없으면 스킵
-
+        # 현재가는 항상 업데이트, peak는 신고점일 때만 갱신
         patch_body = {
             "current_price":    ohlc["close"],
             "price_change_pct": close_pct,
-            "peak_change_pct":  best_pct,
-            "peak_at":          now_str,
         }
+        if is_new_peak:
+            patch_body["peak_change_pct"] = best_pct
+            patch_body["peak_at"]         = now_str
         async with aiohttp.ClientSession() as session:
             async with session.patch(
                 f"{BASE_URL}/api/predictions/{pred['id']}",

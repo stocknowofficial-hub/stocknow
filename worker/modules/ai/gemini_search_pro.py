@@ -14,7 +14,7 @@ class GeminiSearchPro:
         else:
             try:
                 self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-                print(f"✨ [Gemini Pro] 브리핑 전용 엔진 가동 (Model: gemini-2.5-flash)")
+                print(f"✨ [Gemini Pro] 브리핑 전용 엔진 가동 (Model: gemini-3-flash-preview)")
             except Exception as e:
                 print(f"❌ [Gemini Pro] 초기화 실패: {e}")
                 self.client = None

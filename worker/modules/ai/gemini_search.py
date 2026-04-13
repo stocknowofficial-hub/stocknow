@@ -13,7 +13,7 @@ class GeminiSearch:
         else:
             try:
                 self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-                print(f"✨ [Gemini] 메인 엔진 준비 완료 (Model: gemini-3-flash-preview)")
+                print(f"✨ [Gemini] 메인 엔진 준비 완료 (Model: gemini-2.5-flash)")
             except Exception as e:
                 print(f"❌ [Gemini] 초기화 실패: {e}")
                 self.client = None
