@@ -53,7 +53,7 @@ def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=No
     NO_NEWS_FOUND
     """
 
-def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_time_str=None):
+def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_time_str=None, market_data=None):
     """
     [GeminiSearchPro] 시황 브리핑 및 트럼프 분석용 프롬프트
     Returns: (header_title, prompt_text)
@@ -72,6 +72,7 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
     - **STRICTLY FORBIDDEN**: Do NOT use bold text (**). Write EVERYTHING in plain text.
     - **Keep it Concise**: Max 3-4 bullet points per section. Avoid long paragraphs.
     - **Data-Driven (CRITICAL)**: You MUST include specific numbers (%, prices, indices) and EXACT company names/tickers. Do not say "Tech rose". Say "Nvidia (+2.5%) led the tech rally".
+    - **NO HALLUCINATION (ABSOLUTE RULE)**: Exchange rates (원/달러), KOSPI/KOSDAQ levels, US index levels, Oil prices, Bond yields — ALL numeric values MUST come directly from search results. NEVER generate or guess numbers from memory. If you cannot find the exact number in search results, write 'N/A' instead.
     - **Sentiment Tag**: The VERY LAST LINE must be exactly one of: [Sentiment: Positive], [Sentiment: Negative], or [Sentiment: Neutral].
     """
 
@@ -80,32 +81,59 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
     # 🇰🇷 한국장
     if mode == 'KR_OPENING':
         header_title = f"🇰🇷 한국 증시 장 시작전 브리핑 ({today_full})"
+
+        # 검증된 시장 데이터 주입 블록
+        verified_data_block = ""
+        if market_data:
+            lines = ["[VERIFIED MARKET DATA — API에서 직접 조회한 확정 수치입니다]",
+                     "아래 수치를 분석의 기반으로 반드시 사용하세요. 절대 다른 수치로 바꾸거나 모순된 분석을 쓰지 마세요."]
+            for key, val in market_data.items():
+                lines.append(f"- {key}: {val}")
+            lines.append("[END OF VERIFIED DATA]")
+            verified_data_block = "\n        ".join(lines)
+
         prompt = f"""
         {base_rule}
+        {verified_data_block}
+
         [Task] Search for "{query}" and write a 'Market Opening Briefing' for Korea.
 
         [Structure]
         1. 📅 [오늘의 일정]
            - Key economic events, earnings releases, or policy announcements today.
         2. 📈 [시장 전망]
-           - Expected market flow based on overnight US market. Include exact index changes (e.g., S&P500 +0.5%).
+           - Expected market flow based on overnight US market. Use the VERIFIED DATA above for index numbers.
         3. ⚠️ [리스크 및 변수]
-           - Negative factors, exchange rate risks, or geopolitical issues with specific data.
+           - Negative factors, exchange rate risks, or geopolitical issues. Use VERIFIED DATA for exchange rate and oil price.
         4. 🧐 [관전 포인트]
            - Sectors or themes to watch closely today. Must mention at least 1-2 specific leading stocks (대장주).
         """
 
     elif mode == 'KR_MID':
         header_title = f"🇰🇷 한국 증시 장중 브리핑 ({today_full})"
+
+        # 검증된 장중 지수 주입 블록
+        verified_data_block = ""
+        if market_data:
+            lines = ["[VERIFIED MARKET DATA — API에서 직접 조회한 확정 수치입니다]",
+                     "아래 코스피/코스닥/환율 수치는 실시간 API 값입니다. 반드시 이 수치를 사용하세요."]
+            for key, val in market_data.items():
+                lines.append(f"- {key}: {val}")
+            lines.append("[END OF VERIFIED DATA]")
+            verified_data_block = "\n        ".join(lines)
+
         prompt = f"""
         {base_rule}
+        {verified_data_block}
+
         [Task] Search for "{query}" and write a 'Mid-Day Market Briefing' for Korea.
 
-        [CRITICAL VERIFICATION STEP]
-        - Before writing, **DOUBLE CHECK** the time of the events.
-        - **Common Mistake**: Do NOT confuse "Yesterday's Closing News" with "Today's Mid-Day Flow".
-        - Ensure all mentioned stock movements are happening **RIGHT NOW** (Real-time), not result from yesterday.
-        - If the news mentions "Market Closed" or "Ended", it is OLD data. SKIP IT.
+        [CRITICAL DATE VERIFICATION — ABSOLUTE RULE]
+        - Every single stock movement, index level, and price MUST be from TODAY's live session only.
+        - **FORBIDDEN**: Do NOT use any data from yesterday, last week, or any other date.
+        - Before mentioning ANY individual stock's % change, verify the search result is from TODAY's trading session.
+        - If you cannot confirm a stock's movement is from TODAY, OMIT that stock entirely. Do NOT guess.
+        - "장 마감", "전일 대비", "전날" in search results = OLD DATA. SKIP IT.
 
         [Structure]
         1. 📈 [오전 상승 주도]

@@ -29,7 +29,7 @@ class GeminiSearchPro:
             )
         )
 
-    async def search_and_summarize(self, query, link_keyword=None, mode='KR_MID', original_url=None, post_time=None):
+    async def search_and_summarize(self, query, link_keyword=None, mode='KR_MID', original_url=None, post_time=None, market_data=None):
         """
         Broadcasting Logic (KR/US x Opening/Mid/Close)
         """
@@ -65,7 +65,7 @@ class GeminiSearchPro:
                 post_time_str = str(post_time)
 
         # 🤖 [AI 지시사항] - 외부 파일(prompts.py)에서 가져옴
-        header_title, prompt = get_briefing_prompt(mode, query, today_full, ny_str, kr_str, post_time_str=post_time_str)
+        header_title, prompt = get_briefing_prompt(mode, query, today_full, ny_str, kr_str, post_time_str=post_time_str, market_data=market_data)
 
         # 🚀 실행 및 파싱 (Run & Parse)
         try:

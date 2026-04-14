@@ -152,20 +152,39 @@ class NewsWorker:
             query = ""
             clean_keyword = ""
 
+            market_data = {}
+
             if market == 'KR':
                 clean_keyword = "한국 증시"
-                if subtype == 'OPENING': query = "오늘 한국 증시 개장 전망, 주요 일정, 리스크, 관전 포인트 분석"
-                elif subtype == 'MID': query = "오늘 오전 한국 증시 상승 섹터, 하락 섹터, 특징주, 시황 요약"
-                elif subtype == 'CLOSE': query = "오늘 한국 증시 마감 시황과 코스피 코스닥 등락 원인"
-            
+                if subtype == 'OPENING':
+                    query = "오늘 한국 증시 개장 전망, 주요 일정, 리스크, 관전 포인트 분석"
+                    try:
+                        from worker.modules.market_data import fetch_us_market_data
+                        loop = asyncio.get_event_loop()
+                        market_data = await loop.run_in_executor(None, fetch_us_market_data)
+                        logger.info(f"📊 [MarketData] US 지수 조회 완료: {market_data}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [MarketData] US 지수 조회 실패: {e}")
+                elif subtype == 'MID':
+                    query = "오늘 오전 한국 증시 상승 섹터, 하락 섹터, 특징주, 시황 요약"
+                    try:
+                        from worker.modules.market_data import fetch_kr_realtime_data
+                        loop = asyncio.get_event_loop()
+                        market_data = await loop.run_in_executor(None, fetch_kr_realtime_data)
+                        logger.info(f"📊 [MarketData] KR 지수 조회 완료: {market_data}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [MarketData] KR 지수 조회 실패: {e}")
+                elif subtype == 'CLOSE':
+                    query = "오늘 한국 증시 마감 시황과 코스피 코스닥 등락 원인"
+
             elif market == 'US':
                 clean_keyword = "US Stock Market News"
                 if subtype == 'OPENING': query = "US stock market pre-market news and major economic events today. (Answer in Korean)"
                 elif subtype == 'MID': query = "US stock market mid-day trading update and top gainers/losers. (Answer in Korean)"
                 elif subtype == 'CLOSE': query = "US stock market closing summary and why major tech stocks moved today. (Answer in Korean)"
-            
+
             logger.info(f"🧠 [Gemini Pro] 요청: {query} (Mode: {pro_mode})")
-            return await self.gemini_pro.search_and_summarize(query, link_keyword=clean_keyword, mode=pro_mode)
+            return await self.gemini_pro.search_and_summarize(query, link_keyword=clean_keyword, mode=pro_mode, market_data=market_data)
 
         # -----------------------------------------------------
         # C. SNS 분석 (SNS_ANALYSIS) - 트럼프 전담
