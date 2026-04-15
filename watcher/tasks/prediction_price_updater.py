@@ -129,9 +129,11 @@ async def run_daily_update(market: str):
     pending_preds = await fetch_predictions("pending")
     hit_preds     = await fetch_predictions("completed")
 
-    # hit 중 만료 전인 것만 (peak 갱신 대상)
     now_utc = datetime.now(timezone.utc)
-    hit_active = []
+
+    # hit 중 만료 전인 것 (peak 갱신 대상) + 만료된 것 (current_price만 갱신)
+    hit_active = []   # 만료 전: peak + current_price 갱신
+    hit_expired = []  # 만료 후: current_price만 갱신
     for p in hit_preds:
         if p.get("result") != "hit":
             continue
@@ -143,6 +145,8 @@ async def run_daily_update(market: str):
             expires = expires.replace(tzinfo=timezone.utc)
         if expires > now_utc:
             hit_active.append(p)
+        else:
+            hit_expired.append(p)
 
     def market_filter(p: dict) -> bool:
         code = p.get("target_code", "")
@@ -151,10 +155,11 @@ async def run_daily_update(market: str):
         else:  # US
             return bool(code) and code.isascii() and code.isalpha() and len(code) <= 5
 
-    active_pending = [p for p in pending_preds if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
-    active_hit     = [p for p in hit_active    if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
+    active_pending  = [p for p in pending_preds if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
+    active_hit      = [p for p in hit_active    if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
+    expired_hit     = [p for p in hit_expired   if market_filter(p) and p.get("direction") in ("up", "down") and p.get("source") != "trump"]
 
-    logger.info(f"💹 [PriceUpdater] {market} 대상: pending {len(active_pending)}건, hit(만료전) {len(active_hit)}건")
+    logger.info(f"💹 [PriceUpdater] {market} 대상: pending {len(active_pending)}건, hit(만료전) {len(active_hit)}건, hit(만료후) {len(expired_hit)}건")
 
     if not active_pending and not active_hit:
         return
@@ -279,6 +284,32 @@ async def run_daily_update(market: str):
                     logger.info(
                         f"🏔 [PeakUpdate] {pred['id']} ({code}) peak 갱신: {sign}{best_pct}%"
                     )
+
+    # ④ 만료된 hit 예측 — current_price만 갱신 (peak는 건드리지 않음)
+    for pred in expired_hit:
+        code      = pred["target_code"]
+        direction = pred["direction"]
+
+        ohlc = await loop.run_in_executor(None, fetch_ohlc, code)
+        if not ohlc:
+            continue
+
+        entry_price = pred.get("entry_price") or ohlc["close"]
+        close_pct   = round(((ohlc["close"] - entry_price) / entry_price) * 100, 2)
+
+        patch_body = {
+            "current_price":    ohlc["close"],
+            "price_change_pct": close_pct,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(
+                f"{BASE_URL}/api/predictions/{pred['id']}",
+                json=patch_body,
+                headers={"X-Secret-Key": SECRET},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 200:
+                    updated += 1
 
     logger.info(f"💹 [PriceUpdater] {market} 완료: {updated}건 업데이트")
 

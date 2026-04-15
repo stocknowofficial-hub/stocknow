@@ -36,6 +36,21 @@ export async function sendVipInvite(
     );
     const memberData = (await memberRes.json()) as { ok: boolean; result?: { status: string } };
     const memberStatus = memberData?.result?.status;
+
+    if (memberStatus === "kicked") {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegramId,
+          text: `🚫 채널에서 차단(내보내기)되어 입장할 수 없는 상태입니다.\n\n오류라고 생각되시면 관리자에게 문의해주세요.`,
+          parse_mode: "Markdown",
+        }),
+      });
+      console.log("[Telegram] 차단된(kicked) 채널 멤버 — 초대 링크 생략:", telegramId);
+      return null;
+    }
+
     if (memberStatus === "member" || memberStatus === "administrator" || memberStatus === "creator") {
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
@@ -50,7 +65,7 @@ export async function sendVipInvite(
       return null;
     }
 
-    // 1. 기존 링크 있으면 재발송 (revoke + 새 링크 생성 금지)
+    // 1. 기존 링크 있으면 그대로 재발송 (revoke 금지 — 이중 호출 시 유효 링크가 revoke되는 버그 방지)
     if (prevInviteLink) {
       const expiresDisplay = expiresAt
         ? new Date(expiresAt).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })
@@ -71,7 +86,7 @@ export async function sendVipInvite(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: telegramId, text, parse_mode: "Markdown" }),
       });
-      console.log("[Telegram] 기존 초대 링크 재발송:", telegramId);
+      console.log("[Telegram] 기존 초대 링크 재발송 (revoke 없음):", telegramId, prevInviteLink);
       return prevInviteLink;
     }
 
@@ -95,12 +110,15 @@ export async function sendVipInvite(
       result?: { invite_link: string };
     };
 
+    console.log("[Telegram] createChatInviteLink 응답:", JSON.stringify(inviteData));
+
     if (!inviteData.ok || !inviteData.result?.invite_link) {
       console.error("[Telegram] 초대 링크 생성 실패:", JSON.stringify(inviteData));
       return null;
     }
 
     const inviteLink = inviteData.result.invite_link;
+    console.log("[Telegram] 새 초대 링크 생성됨:", inviteLink, "/ member_limit:", inviteData.result);
 
     const expiresDisplay = expiresAt
       ? new Date(expiresAt).toLocaleDateString("ko-KR", {

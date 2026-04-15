@@ -175,13 +175,13 @@ export async function POST(request: Request) {
       .first<{ telegram_id: string | null; name: string | null; pending_invite_link: string | null }>();
 
     if (userRow?.telegram_id) {
-      const prevLink = userRow.pending_invite_link ?? null;
+      // 재결제 시 기존 링크는 무효(이미 사용됐거나 만료)이므로 null로 넘겨 새 링크 생성
       const newLink = await sendVipInvite(
         userRow.telegram_id,
         userRow.name ?? "회원",
         plan.plan.toUpperCase(),
         newExpiry.toISOString(),
-        prevLink
+        null
       );
       if (newLink) {
         await db
