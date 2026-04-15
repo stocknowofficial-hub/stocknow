@@ -16,10 +16,11 @@ export interface Sections {
   program: StockItem[];
   foreign: StockItem[];
   volume: StockItem[];
+  value: StockItem[];
 }
 
 interface TabConfig {
-  key: 'program' | 'foreign' | 'volume';
+  key: 'program' | 'foreign' | 'volume' | 'value';
   label: string;
 }
 
@@ -32,6 +33,7 @@ interface WhaleFeedPanelProps {
 
 const KR_TABS: TabConfig[] = [
   { key: 'volume', label: '📈 거래량' },
+  { key: 'value', label: '💰 거래대금' },
   { key: 'foreign', label: '👽 외국인' },
   { key: 'program', label: '🏛️ 기관' },
 ];
@@ -45,7 +47,7 @@ const US_TABS: TabConfig[] = [
 export { KR_TABS, US_TABS };
 
 export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMessage }: WhaleFeedPanelProps) {
-  const [tab, setTab] = useState<'program' | 'foreign' | 'volume'>(tabs[0].key);
+  const [tab, setTab] = useState<'program' | 'foreign' | 'volume' | 'value'>(tabs[0].key);
   const [showAll, setShowAll] = useState(false);
 
   if (!sections) {
@@ -80,7 +82,7 @@ export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMess
       {/* 종목 리스트 */}
       <div className="space-y-1.5 cursor-default">
         {(() => {
-          const limit = tab === 'volume' ? (showAll ? 20 : 10) : 20;
+          const limit = (tab === 'volume' || tab === 'value') ? (showAll ? 20 : 10) : 20;
           let rank = 0;
           return items.slice(0, limit).map((item, i) => {
             if (item.is_header) {
@@ -124,8 +126,8 @@ export function WhaleFeedPanel({ sections, updated_at, tabs = KR_TABS, emptyMess
         })()}
       </div>
 
-      {/* 더보기 버튼 — 거래량 탭에서 10개 이상일 때만 */}
-      {tab === 'volume' && items.length > 10 && (
+      {/* 더보기 버튼 — 거래량/거래대금 탭에서 10개 이상일 때만 */}
+      {(tab === 'volume' || tab === 'value') && items.length > 10 && (
         <button
           onClick={() => setShowAll(v => !v)}
           className="w-full mt-3 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-300 bg-white/[0.03] hover:bg-white/[0.06] transition-all"

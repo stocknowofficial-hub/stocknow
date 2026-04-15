@@ -22,11 +22,12 @@ from watcher.utils.definitions import (
 import os
 
 
-async def push_to_dashboard(frgn_top10: list, inst_top10: list, vol_top_20: list):
+async def push_to_dashboard(frgn_top10: list, inst_top10: list, vol_top_20: list, val_top_20: list = []):
     """웹 대시보드 D1에 수급 데이터 업로드 (5분마다 호출)
     - frgn_top10: FHPTJ04400000 외국인 순매수 Top10
     - inst_top10: FHPTJ04400000 기관계 순매수 Top10
     - vol_top_20: 거래량 Top20
+    - val_top_20: 거래대금 Top20
     """
     secret = getattr(settings, 'WHALE_SECRET', '') or os.environ.get('WHALE_SECRET', '')
     if not secret:
@@ -67,6 +68,23 @@ async def push_to_dashboard(frgn_top10: list, inst_top10: list, vol_top_20: list
             result.append({"name": name, "code": code, "price": price, "chgrate": chgrate, "acml_vol": acml_vol})
         return result
 
+    def extract_value(items: list) -> list:
+        result = []
+        for s in items:
+            name = s.get('hts_kor_isnm') or s.get('name', '')
+            code = s.get('mksc_shrn_iscd') or s.get('code', '')
+            try:
+                price = int(str(s.get('stck_prpr') or s.get('price', 0)).replace(',', ''))
+            except:
+                price = 0
+            chgrate = str(s.get('prdy_ctrt') or s.get('chgrate', '0')).strip()
+            try:
+                amt_eok = int(str(s.get('acml_tr_pbmn', 0)).replace(',', '')) / 100_000_000
+            except:
+                amt_eok = 0.0
+            result.append({"name": name, "code": code, "price": price, "chgrate": chgrate, "amount_eok": round(amt_eok, 0)})
+        return result
+
     # 외국인/기관 타임스탬프 헤더 (언제 데이터인지 명시)
     ts_header = []
     if latest_frgn_inst_updated_at:
@@ -77,6 +95,7 @@ async def push_to_dashboard(frgn_top10: list, inst_top10: list, vol_top_20: list
         "foreign_items": ts_header + extract_frgn_inst(frgn_top10, 'frgn_ntby_tr_pbmn'),  # 외국인
         "program_items": ts_header + extract_frgn_inst(inst_top10, 'orgn_ntby_tr_pbmn'),  # 기관 (program 컬럼 재활용)
         "volume_items":  extract_volume(vol_top_20),
+        "value_items":   extract_value(val_top_20),
     }
 
     url = f"{settings.CLOUDFLARE_URL}/api/whale-feed"
@@ -518,7 +537,7 @@ async def run_whale_watcher_kr(approval_key, access_token):
 
                     # 4. 웹 대시보드 D1 업데이트 (telegraph와 동시)
                     # 외국인/기관은 슬롯 캐시 사용 (FHPTJ04400000, 4회/일)
-                    await push_to_dashboard(latest_frgn_top10, latest_inst_top10, vol_top_20)
+                    await push_to_dashboard(latest_frgn_top10, latest_inst_top10, vol_top_20, val_top_20)
 
                     if url:
                         # Save Config if Path changed (first run)

@@ -71,7 +71,7 @@ export default async function DashboardPage({
     const ctx = getCloudflareContext();
     const db = ctx?.env?.DB as import("@cloudflare/workers-types").D1Database | undefined;
     if (db) {
-      type WhaleFeedRow = { program_items: string | null; foreign_items: string | null; volume_items: string | null; updated_at: string | null };
+      type WhaleFeedRow = { program_items: string | null; foreign_items: string | null; volume_items: string | null; value_items: string | null; updated_at: string | null };
       const [sub, referrals, userRow, whaleRow, whaleUsRow] = await Promise.all([
         db
           .prepare("SELECT plan, status, expires_at FROM subscriptions WHERE user_id = ?")
@@ -86,10 +86,10 @@ export default async function DashboardPage({
           .bind(userId)
           .first<UserRow>(),
         db
-          .prepare("SELECT program_items, foreign_items, volume_items, updated_at FROM whale_feed WHERE market = 'KR'")
+          .prepare("SELECT program_items, foreign_items, volume_items, value_items, updated_at FROM whale_feed WHERE market = 'KR'")
           .first<WhaleFeedRow>(),
         db
-          .prepare("SELECT program_items, foreign_items, volume_items, updated_at FROM whale_feed WHERE market = 'US'")
+          .prepare("SELECT program_items, foreign_items, volume_items, value_items, updated_at FROM whale_feed WHERE market = 'US'")
           .first<WhaleFeedRow>(),
       ]);
 
@@ -105,6 +105,7 @@ export default async function DashboardPage({
           program: parse(whaleRow.program_items),
           foreign: parse(whaleRow.foreign_items),
           volume: parse(whaleRow.volume_items),
+          value: parse(whaleRow.value_items),
         };
         whaleUpdatedAt = whaleRow.updated_at;
       }
@@ -114,6 +115,7 @@ export default async function DashboardPage({
           program: parse(whaleUsRow.program_items),
           foreign: parse(whaleUsRow.foreign_items),
           volume: parse(whaleUsRow.volume_items),
+          value: parse(whaleUsRow.value_items),
         };
         whaleUsUpdatedAt = whaleUsRow.updated_at;
       }

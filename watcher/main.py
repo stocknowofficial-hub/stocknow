@@ -21,6 +21,7 @@ from watcher.tasks.prediction_price_updater import run_prediction_price_updater 
 from watcher.tasks.macro_watcher import run_macro_watcher # 📊 Macro Signals
 from watcher.tasks.consensus_summary_watcher import run_consensus_summary_watcher # 🧠 AI 주간 요약
 from watcher.tasks.wallstreet_watcher import run_wallstreet_watcher # 📈 월가 컨센서스
+from watcher.tasks.dashboard_promo import run_dashboard_promo # 📣 대시보드 유도 메시지
 from common.logger import setup_logger # ✅ Logger Import
 
 logger = setup_logger("Watcher", "logs/watcher", "watcher.log")
@@ -122,6 +123,9 @@ async def main():
 
         # 📈 월가 컨센서스 수집 (24시간 주기)
         run_wallstreet_watcher(),
+
+        # 📣 대시보드 유도 메시지 (07:10, 16:10 KST)
+        run_dashboard_promo(),
 
         # 🔄 스케줄러
         run_scheduled_restarter()

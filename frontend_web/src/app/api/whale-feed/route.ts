@@ -20,6 +20,7 @@ interface WhaleFeedRow {
   program_items: string | null;
   foreign_items: string | null;
   volume_items: string | null;
+  value_items: string | null;
   updated_at: string | null;
 }
 
@@ -41,6 +42,7 @@ export async function GET() {
       program: JSON.parse(row.program_items ?? "[]"),
       foreign: JSON.parse(row.foreign_items ?? "[]"),
       volume: JSON.parse(row.volume_items ?? "[]"),
+      value: JSON.parse(row.value_items ?? "[]"),
     },
     updated_at: row.updated_at,
   });
@@ -60,19 +62,21 @@ export async function POST(request: Request) {
     program_items: object[];
     foreign_items: object[];
     volume_items: object[];
+    value_items: object[];
   };
 
-  const { market, program_items, foreign_items, volume_items } = body;
+  const { market, program_items, foreign_items, volume_items, value_items } = body;
   if (!market) return NextResponse.json({ error: "market required" }, { status: 400 });
 
   await db
     .prepare(
-      `INSERT INTO whale_feed (market, program_items, foreign_items, volume_items, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
+      `INSERT INTO whale_feed (market, program_items, foreign_items, volume_items, value_items, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT(market) DO UPDATE SET
          program_items = excluded.program_items,
          foreign_items = excluded.foreign_items,
          volume_items  = excluded.volume_items,
+         value_items   = excluded.value_items,
          updated_at    = excluded.updated_at`
     )
     .bind(
@@ -80,6 +84,7 @@ export async function POST(request: Request) {
       JSON.stringify(program_items ?? []),
       JSON.stringify(foreign_items ?? []),
       JSON.stringify(volume_items ?? []),
+      JSON.stringify(value_items ?? []),
     )
     .run();
 

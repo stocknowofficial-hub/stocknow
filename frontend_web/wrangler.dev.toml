@@ -1,0 +1,10 @@
+name = "stock-now-dev"
+compatibility_date = "2025-03-13"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".open-next/assets"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "stock-now-dev-database"
+database_id = "c63da268-b181-4705-8590-4e54bd8ac19d"
+migrations_dir = "migrations"

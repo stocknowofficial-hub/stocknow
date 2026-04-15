@@ -1,4 +1,4 @@
-import { cpSync, copyFileSync } from "fs";
+import { cpSync, copyFileSync, readFileSync, writeFileSync } from "fs";
 import { execSync } from "child_process";
 
 const isDev = process.argv.includes('--dev');
@@ -35,7 +35,24 @@ for (const dir of ["cloudflare", "middleware", "server-functions", ".build"]) {
 }
 
 console.log(`\n🚀 Deploying to [${projectName}]...\n`);
-execSync(
-  `npx wrangler pages deploy .open-next/assets --project-name=${projectName} --commit-dirty=true --commit-message="${commitHash}"`,
-  { stdio: "inherit" }
-);
+
+// dev 배포 시: wrangler.toml을 dev DB 설정으로 임시 교체 후 배포, 완료 후 원복
+if (isDev) {
+  const prodToml = readFileSync('wrangler.toml', 'utf8');
+  const devToml = readFileSync('wrangler.dev.toml', 'utf8');
+  try {
+    writeFileSync('wrangler.toml', devToml);
+    execSync(
+      `npx wrangler pages deploy .open-next/assets --project-name=${projectName} --commit-dirty=true --commit-message="${commitHash}"`,
+      { stdio: "inherit" }
+    );
+  } finally {
+    writeFileSync('wrangler.toml', prodToml); // 성공/실패 무관하게 항상 원복
+    console.log("✓ wrangler.toml 원복 완료");
+  }
+} else {
+  execSync(
+    `npx wrangler pages deploy .open-next/assets --project-name=${projectName} --commit-dirty=true --commit-message="${commitHash}"`,
+    { stdio: "inherit" }
+  );
+}
