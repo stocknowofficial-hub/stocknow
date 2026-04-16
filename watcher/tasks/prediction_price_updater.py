@@ -99,7 +99,7 @@ async def fetch_predictions(status: str) -> list:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{BASE_URL}/api/predictions?status={status}&limit=50",
+                f"{BASE_URL}/api/predictions?status={status}&limit=500",
                 headers={"X-Secret-Key": SECRET},
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
@@ -161,7 +161,7 @@ async def run_daily_update(market: str):
 
     logger.info(f"💹 [PriceUpdater] {market} 대상: pending {len(active_pending)}건, hit(만료전) {len(active_hit)}건, hit(만료후) {len(expired_hit)}건")
 
-    if not active_pending and not active_hit:
+    if not active_pending and not active_hit and not expired_hit:
         return
 
     loop = asyncio.get_running_loop()

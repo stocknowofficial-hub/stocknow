@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Downloaded report PDFs (auto-collected by watcher)
 data/reports/*.pdf
+
+# Telegraph 자동 생성 설정 파일 (런타임 생성, 커밋 불필요)
+telegraph_config_*.json
