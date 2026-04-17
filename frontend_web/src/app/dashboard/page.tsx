@@ -10,6 +10,7 @@ import { WhaleFeedPanel, KR_TABS, US_TABS, type Sections } from "@/components/Wh
 import { CopyButton } from "@/components/CopyButton";
 import { Suspense } from "react";
 import Link from "next/link";
+import OnboardingTourLoader from "@/components/OnboardingTourLoader";
 
 const CURRENT_VERSION = "v1.1.0";
 
@@ -169,6 +170,7 @@ export default async function DashboardPage({
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
+      <OnboardingTourLoader usFirst={!!(whaleUsUpdatedAt && whaleUpdatedAt ? whaleUsUpdatedAt > whaleUpdatedAt : !!whaleUsUpdatedAt)} />
       <div className="flex">
         <DashboardSidebar user={session.user} provider={provider} />
 
@@ -236,8 +238,8 @@ export default async function DashboardPage({
                       : "무료 플랜을 이용 중입니다."}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <TelegramLinkButton isLinked={telegramLinked} />
-                  <PremiumUpgradeButton isRenewal={isPaid} expiresAt={subscription?.expires_at} />
+                  <div id="tour-telegram-btn"><TelegramLinkButton isLinked={telegramLinked} /></div>
+                  <div id="tour-upgrade-btn"><PremiumUpgradeButton isRenewal={isPaid} expiresAt={subscription?.expires_at} /></div>
                 </div>
               </div>
 
@@ -267,7 +269,7 @@ export default async function DashboardPage({
                   : !!whaleUsUpdatedAt;
 
                 const krPanel = (
-                  <div className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
+                  <div id="tour-kr-market" className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <h3 className="text-base font-bold">🇰🇷 국내 수급 현황</h3>
@@ -290,7 +292,7 @@ export default async function DashboardPage({
                 );
 
                 const usPanel = (
-                  <div className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
+                  <div id="tour-us-market" className="lg:col-span-3 p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <h3 className="text-base font-bold">🇺🇸 미국 시장 현황</h3>
