@@ -142,7 +142,7 @@ async def run_condition_watcher(approval_key, access_token=None):
                             "summary": f"실시간 급등/급락 종목 (±3% 이상 / 시총 100위 이내)\n\n{top_summary}\n...전체 리스트는 아래 링크 확인",
                             "sentiment": "Neutral",
                             "link": page_url,
-                            "should_pin": True # 📌 메시지 고정 요청
+                            "should_pin": False
                         }
                         await redis_client.publish("news_alert", ujson.dumps(payload))
                         print("📢 [브리핑] 09:10 모닝 브리핑 전송 완료")

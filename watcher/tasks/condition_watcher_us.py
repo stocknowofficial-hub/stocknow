@@ -359,7 +359,7 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                             "summary": f"오늘 밤 장전 주요 움직임입니다 (±3% 이상 / 시총 $10B 이상).\n\n{summary_text}\n...전체 현황판(ETF 포함)은 아래 링크 클릭",
                             "sentiment": "Neutral",
                             "link": page_url,
-                            "should_pin": True
+                            "should_pin": False
                         }
                         await redis_client.publish("news_alert", ujson.dumps(payload))
                         await mark_briefing_sent(ny_date_str, "premarket")  # [Gap 2] Redis 기록
@@ -384,7 +384,7 @@ async def run_condition_watcher_us(approval_key, access_token=None):
                             "summary": f"장 초반 수급 집중 종목입니다 (±3% 이상 / 시총 $10B 이상).\n\n{summary_text}\n...전체 현황판(ETF 포함)은 아래 링크 클릭",
                             "sentiment": "Neutral",
                             "link": page_url,
-                            "should_pin": True
+                            "should_pin": False
                         }
                         await redis_client.publish("news_alert", ujson.dumps(payload))
                         await mark_briefing_sent(ny_date_str, "open")  # [Gap 2] Redis 기록
