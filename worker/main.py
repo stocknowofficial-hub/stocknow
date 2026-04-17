@@ -354,7 +354,7 @@ async def broadcast_message(bot, message_data):
         text_vip = ""
         text_free = ""
         
-        upgrade_link = "\n👉 **[프리미엄 구독하기]**\nhttps://stock-now.co.kr"
+        upgrade_link = "\n급등/급락 이유 및 월가 리포트 분석을 간편하게 보고싶다면?\n👉 **[프리미엄 구독하기]**\nhttps://stock-now.co.kr"
 
         if msg_type in ["CONDITION", "CONDITION_US"]:
             price = message_data.get('price', '0')
@@ -422,7 +422,7 @@ async def broadcast_message(bot, message_data):
                         
                         upgrade_btn = "👉 [유망 종목 정보 받기]" if "Kiwoom" in name else "👉 [유망 종목 정보 받기]" # User requested specific button text? "유망 종목 정보 받기"
 
-                        text_free = f"💡 [AI 심층분석] {name}\n------------------------------\n{teaser_text}\n...\n------------------------------\n🔗 [{link_label}]({link})\n\n👉 **[프리미엄 구독하기]**\nhttps://stock-now.co.kr"
+                        text_free = f"💡 [AI 심층분석] {name}\n------------------------------\n{teaser_text}\n...\n------------------------------\n🔗 [{link_label}]({link})\n\n급등/급락 이유 및 월가 리포트 분석을 간편하게 보고싶다면?\n👉 **[프리미엄 구독하기]**\nhttps://stock-now.co.kr"
                     else:
                         # 일반 종목 분석 Teaser: 내용 숨김
                         text_free = f"💡 [AI 심층분석] {name}\n------------------------------\n{market_info}{upgrade_link}\n"

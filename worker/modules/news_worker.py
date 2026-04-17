@@ -114,7 +114,7 @@ class NewsWorker:
             print(f"🧠 [Gemini 요청] {query} / [Link] {clean_keyword}")
             if market_context: logger.info(f"   ㄴ 📚 Context Injected: {len(market_context)} chars")
             
-            return await self.gemini.search_and_summarize(query, link_keyword=clean_keyword, market_context=market_context)
+            return await self.gemini.search_and_summarize(query, link_keyword=clean_keyword, market_context=market_context, rate=rate)
 
         # -----------------------------------------------------
         # E. 고래 포착 (WHALE_ALERT) - AI Bypass

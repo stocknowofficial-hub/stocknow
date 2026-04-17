@@ -71,16 +71,13 @@ export async function sendVipInvite(
         ? new Date(expiresAt).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })
         : "무제한";
       const text =
-        `🎉 *VIP 채널에 입장하세요*\n\n` +
-        `안녕하세요, ${userName}님!\n` +
-        `*${planDisplay}*이 진행 중입니다!\n\n` +
-        `📅 이용 기간: ${expiresDisplay}\n\n` +
-        `아래 링크로 VIP 채널에 입장하세요:\n` +
-        `👉 ${prevInviteLink}\n\n` +
-        `⚠️ 이 링크는 1회용이며 7일간 유효합니다.\n` +
-        `입장 후 채널을 떠나지 마세요!\n\n` +
-        `🌐 구독 관리 및 AI 분석 대시보드:\n` +
-        `👉 ${SITE_URL()}/dashboard`;
+        `[Stock Now] VIP 채널 입장 안내\n\n` +
+        `안녕하세요, ${userName}님.\n` +
+        `지금부터 *${planDisplay}* 동안 AI가 분석하는 실시간 주도주와 핵심 브리핑을 받아보실 수 있습니다.\n\n` +
+        `▪️ 이용 기한: ${expiresDisplay}까지\n` +
+        `▪️ 입장 링크: ${prevInviteLink}\n\n` +
+        `본 링크는 보안을 위한 1회용 링크입니다.\n` +
+        `입장 후 채널을 이탈하시면 재입장이 제한될 수 있습니다.`;
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,16 +127,13 @@ export async function sendVipInvite(
 
     // 3. 유저에게 DM 발송
     const text =
-      `🎉 *VIP 채널에 입장하세요*\n\n` +
-      `안녕하세요, ${userName}님!\n` +
-      `*${planDisplay}*이 시작됩니다!\n\n` +
-      `📅 이용 기간: ${expiresDisplay}\n\n` +
-      `아래 링크로 VIP 채널에 입장하세요:\n` +
-      `👉 ${inviteLink}\n\n` +
-      `⚠️ 이 링크는 1회용이며 7일간 유효합니다.\n` +
-      `입장 후 채널을 떠나지 마세요!\n\n` +
-      `🌐 구독 관리 및 AI 분석 대시보드:\n` +
-      `👉 ${SITE_URL()}/dashboard`;
+      `[Stock Now] VIP 채널 입장 안내\n\n` +
+      `안녕하세요, ${userName}님.\n` +
+      `지금부터 *${planDisplay}* 동안 AI가 분석하는 실시간 주도주와 핵심 브리핑을 받아보실 수 있습니다.\n\n` +
+      `▪️ 이용 기한: ${expiresDisplay}까지\n` +
+      `▪️ 입장 링크: ${inviteLink}\n\n` +
+      `본 링크는 보안을 위한 1회용 링크입니다.\n` +
+      `입장 후 채널을 이탈하시면 재입장이 제한될 수 있습니다.`;
 
     const msgRes = await fetch(
       `https://api.telegram.org/bot${token}/sendMessage`,

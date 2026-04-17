@@ -1,4 +1,4 @@
-def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=None):
+def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=None, rate=None):
     """
     [GeminiSearch] 개별 종목 급등/급락 분석용 프롬프트
     market_context: 과거 브리핑/트럼프 분석 요약본 (Recall)
@@ -20,9 +20,25 @@ def get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=No
     - **Format:** "🎯 **[인사이트 적중]** (날짜) 브리핑에서 짚어드린 '(핵심내용)' 모멘텀이 정확히 시장에 반영되었습니다."
     """
 
+    # 실제 등락률 주입 (Search Grounding 실패 시 할루시네이션 방지)
+    rate_block = ""
+    if rate is not None:
+        try:
+            rate_val = float(rate)
+            direction = "상승" if rate_val > 0 else "하락"
+            rate_block = f"""
+    [VERIFIED MARKET DATA — ABSOLUTE TRUTH]
+    - 현재 등락률: {rate_val:+.2f}% ({direction})
+    - 이 수치는 확인된 실제 데이터입니다. 검색 결과와 무관하게 반드시 이 방향에 맞게 분석하세요.
+    - [투자 판단]의 이모지와 방향은 반드시 이 등락률과 일치해야 합니다.
+    """
+        except:
+            pass
+
     return f"""
     [Task] Perform a Google Search for: "{query}"
 
+    {rate_block}
     {context_instruction}
 
     [Smart Filtering Rules]

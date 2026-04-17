@@ -28,11 +28,12 @@ class GeminiSearch:
             )
         )
 
-    async def search_and_summarize(self, query, link_keyword=None, mode='default', market_context=None):
+    async def search_and_summarize(self, query, link_keyword=None, mode='default', market_context=None, rate=None):
         """
         query: Gemini에게 던질 복잡한 질문
         link_keyword: 사용자에게 보여줄 깔끔한 검색어 (없으면 query 사용)
         market_context: 과거 분석 기록 문자열 (Context Injection)
+        rate: 실제 등락률 (할루시네이션 방지용 주입)
         """
         if not self.client: return None
 
@@ -43,7 +44,7 @@ class GeminiSearch:
         yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
 
         # 🤖 [AI 지시사항] - 외부 파일(prompts.py)에서 가져옴
-        prompt = get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=market_context)
+        prompt = get_stock_analysis_prompt(query, today_str, yesterday_str, market_context=market_context, rate=rate)
 
         try:
             loop = asyncio.get_running_loop()
