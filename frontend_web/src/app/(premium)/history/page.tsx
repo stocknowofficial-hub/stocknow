@@ -19,8 +19,8 @@ const PENDING_ORDER = `
   expires_at ASC
 `;
 
-const PRED_COLS = `id, source, source_desc, prediction, direction, target, target_code, result,
-  entry_price, current_price, price_change_pct, peak_change_pct, peak_at, hit_change_pct, hit_at,
+const PRED_COLS = `id, source, source_desc, prediction, direction, target, target_code, result, result_at,
+  entry_price, current_price, price_change_pct, price_updated_at, peak_change_pct, peak_at, hit_change_pct, hit_at,
   trade_setup, created_at, expires_at, confidence, basis`;
 
 async function getHistoryData() {

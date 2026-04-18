@@ -115,7 +115,7 @@ async function getConsensusData() {
     const db = ctx?.env?.DB;
     if (!db) return null;
 
-    const [dirRes, targetRes, sourcesRes, reportRes, reportCountRes, accRes, accStats, lastWeekTargetRes, summaryRes, bestTradeRes, keyPointsRes, tableRes, sourceBreakdownRes] = await Promise.all([
+    const [dirRes, targetRes, sourcesRes, reportRes, reportCountRes, accRes, accStats, lastWeekTargetRes, summaryRes, bestTradeRes, keyPointsRes, tableRes] = await Promise.all([
       db.prepare(`SELECT direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY direction`).all(),
       db.prepare(`SELECT target, target_code, direction, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY target, direction`).all(),
       db.prepare(`SELECT target, direction, source, date(created_at) as date FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump'`).all(),
@@ -128,7 +128,6 @@ async function getConsensusData() {
       db.prepare(`SELECT target, price_change_pct, direction FROM predictions WHERE result = 'hit' AND price_change_pct IS NOT NULL ORDER BY price_change_pct DESC LIMIT 1`).first().catch(() => null),
       db.prepare(`SELECT target, key_points FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' AND key_points IS NOT NULL`).all(),
       db.prepare(`SELECT id, source, source_desc, source_url, target, target_code, direction, confidence, action, expires_at, created_at FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' ORDER BY CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC LIMIT 300`).all(),
-      db.prepare(`SELECT source, COUNT(*) as cnt FROM predictions WHERE created_at >= datetime('now', '-7 days') AND source != 'trump' GROUP BY source`).all(),
     ]);
     const accStatsTyped = accStats as { total: number; hits: number; avg_hit_pct: number | null; avg_miss_pct: number | null } | null;
 
@@ -209,23 +208,11 @@ async function getConsensusData() {
 
     const reportTotal = (reportCountRes as { cnt: number } | null)?.cnt ?? 0;
 
-    // 소스별 건수 집계
-    let reportSourceCount = 0;
-    let briefingCount = 0;
-    for (const row of sourceBreakdownRes.results as Array<{ source: string; cnt: number }>) {
-      if (row.source === 'briefing_kr' || row.source === 'briefing_us') {
-        briefingCount += row.cnt;
-      } else {
-        reportSourceCount += row.cnt;
-      }
-    }
-
     return {
       weekLabel: getWeekLabel(),
       reportCount: total,
       reportTotal,
-      reportSourceCount,
-      briefingCount,
+
       tableRows: tableRes.results,
       direction: { up: dirMap.up, down: dirMap.down, sideways: dirMap.sideways, total },
       topTargets,
@@ -276,7 +263,7 @@ export default async function ConsensusPage() {
     );
   }
 
-  const { direction, topTargets, lastWeekTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, reportTotal, reportSourceCount, briefingCount, tableRows, macro, weeklySummary, bestTrade, topKeyPoints, wallstreet, sources } = data;
+  const { direction, topTargets, lastWeekTargets, reports, accuracy, accuracyStats, weekLabel, reportCount, reportTotal, tableRows, macro, weeklySummary, bestTrade, topKeyPoints, wallstreet, sources } = data;
 
   const fg = macro?.fear_greed ?? null;
   const vix = macro?.vix ?? null;
@@ -347,17 +334,17 @@ export default async function ConsensusPage() {
         {/* 헤더 */}
         <div className="mb-8">
           <h1 className="text-2xl lg:text-3xl font-bold text-white mb-2">🧭 주간 컨센서스</h1>
-          <p className="text-sm text-gray-500">{weekLabel} · 증권사 리포트 {reportSourceCount}건 · AI 브리핑 {briefingCount}건</p>
-          <p className="text-[11px] text-gray-600 mt-1">※ 투자 조언이 아닙니다. 참고 목적으로만 활용하세요.</p>
+          <p className="text-sm text-gray-500">{weekLabel} · 증권사 리포트 {reportTotal}건</p>
+          <p className="text-[11px] text-gray-600 mt-1">※ 투자 조언이 아닙니다. 참고 목적으로만 활용하세요. 투자 판단과 손익 책임은 본인에게 있습니다.</p>
         </div>
 
         {/* AI 주간 핵심 뷰 카드 */}
         {weeklySummary && (() => {
           const signalStyle =
             weeklySummary.signal === 'bullish' ? { border: 'border-emerald-500/30', bg: 'from-emerald-500/10 to-emerald-900/5', badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', icon: '📈', label: '강세' } :
-            weeklySummary.signal === 'bearish' ? { border: 'border-rose-500/30', bg: 'from-rose-500/10 to-rose-900/5', badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30', icon: '📉', label: '약세' } :
-            weeklySummary.signal === 'caution' ? { border: 'border-amber-500/30', bg: 'from-amber-500/10 to-amber-900/5', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: '⚠️', label: '주의' } :
-            { border: 'border-white/10', bg: 'from-white/5 to-transparent', badge: 'bg-white/10 text-gray-400 border-white/10', icon: '→', label: '중립' };
+              weeklySummary.signal === 'bearish' ? { border: 'border-rose-500/30', bg: 'from-rose-500/10 to-rose-900/5', badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30', icon: '📉', label: '약세' } :
+                weeklySummary.signal === 'caution' ? { border: 'border-amber-500/30', bg: 'from-amber-500/10 to-amber-900/5', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: '⚠️', label: '주의' } :
+                  { border: 'border-white/10', bg: 'from-white/5 to-transparent', badge: 'bg-white/10 text-gray-400 border-white/10', icon: '→', label: '중립' };
 
           // body가 JSON이면 구조화, 아니면 레거시 텍스트로 처리
           let structured: { situation?: string; analysis?: string; action?: string } | null = null;
@@ -474,93 +461,93 @@ export default async function ConsensusPage() {
           <span className="text-gray-500 group-hover:text-gray-300 transition-colors text-sm">전체 보기 →</span>
         </Link>
 
-      {reportCount === 0 ? (
-        <div className="text-center py-20 text-gray-600">
-          <p className="text-4xl mb-4">🧭</p>
-          <p className="text-sm">이번 주 분석된 리포트가 없습니다.</p>
-          <p className="text-xs mt-1">매주 월~금 오전에 주요 증권사 리포트가 자동 수집됩니다.</p>
-        </div>
-      ) : (
-        <>
-          {/* 컨센서스 통합 카드 */}
-          <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-base font-bold text-white">📊 이번 주 컨센서스</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">증권사 리포트 {direction.total}건 기준</p>
-              </div>
-            </div>
-            <p className={`text-lg font-bold mb-5 ${dominantColor}`}>{dominantLabel}</p>
-
-            <ShowMoreTargets
-              bullish={bullishTargets}
-              bearish={bearishTargets}
-              sideways={sidewaysTargets}
-              total={direction.total}
-            />
-
-            {/* 지난 주 비교 (토글) */}
-            {(() => {
-              const thisWeekMap = new Map(topTargets.map(t => [t.target, t]));
-              const lastBullish = lastWeekTargets
-                .filter(t => t.dominant === 'up')
-                .map(t => ({
-                  name: getTargetName(t.target, t.target_code),
-                  count: t.up,
-                  thisCount: (() => { const w = thisWeekMap.get(t.target); return w?.dominant === 'up' ? w.up : 0; })(),
-                }));
-              const lastBearish = lastWeekTargets
-                .filter(t => t.dominant === 'down')
-                .map(t => ({
-                  name: getTargetName(t.target, t.target_code),
-                  count: t.down,
-                  thisCount: (() => { const w = thisWeekMap.get(t.target); return w?.dominant === 'down' ? w.down : 0; })(),
-                }));
-              return <LastWeekPanel lastBullish={lastBullish} lastBearish={lastBearish} />;
-            })()}
+        {reportCount === 0 ? (
+          <div className="text-center py-20 text-gray-600">
+            <p className="text-4xl mb-4">🧭</p>
+            <p className="text-sm">이번 주 분석된 리포트가 없습니다.</p>
+            <p className="text-xs mt-1">매주 월~금 오전에 주요 증권사 리포트가 자동 수집됩니다.</p>
           </div>
-
-          {/* 분석 결과 요약 테이블 */}
-          {tableRows && tableRows.length > 0 && (
+        ) : (
+          <>
+            {/* 컨센서스 통합 카드 */}
             <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
-              <div className="mb-4">
-                <h3 className="text-base font-bold text-white">📋 이번 주 TOP 10 시그널</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">전체 {reportTotal}건 중 신뢰도 · 최신순 상위 10개 · 상세 내용은 아래 리포트에서</p>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white">📊 이번 주 컨센서스</h3>
+                  <p className="text-[10px] text-gray-500 mt-0.5">증권사 리포트 {direction.total}건 기준</p>
+                </div>
               </div>
-              <PredictionTableSection rows={tableRows as TableRow[]} />
-            </div>
-          )}
+              <p className={`text-lg font-bold mb-5 ${dominantColor}`}>{dominantLabel}</p>
 
-          {/* 증권사 리포트 상세 (accordion) */}
-          {reportItems.length > 0 && (
-            <div id="reports-section" className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
-              <div className="mb-4">
-                <h3 className="text-base font-bold text-white">📑 AI 분석 결과 ({reportTotal}건)</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">증권사 리포트 · 한국장/미국장 브리핑 종합 · 최신 10건 표시</p>
-              </div>
-              <ShowMoreReports
-                reports={reportItems}
-                total={reportTotal}
-                wsMap={Object.fromEntries((wallstreet ?? []).map(w => [w.ticker, w]))}
+              <ShowMoreTargets
+                bullish={bullishTargets}
+                bearish={bearishTargets}
+                sideways={sidewaysTargets}
+                total={direction.total}
               />
-            </div>
-          )}
 
-          {/* 트럼프 링크 */}
-          {trumpItems.length > 0 && (
-            <div className="rounded-2xl lg:rounded-3xl border border-orange-500/20 bg-orange-500/5 p-6 lg:p-8 mb-6 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-orange-400">🏛️ 트럼프 SNS 예측 {trumpItems.length}건</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">트럼프 게시글의 시장 영향 분석</p>
+              {/* 지난 주 비교 (토글) */}
+              {(() => {
+                const thisWeekMap = new Map(topTargets.map(t => [t.target, t]));
+                const lastBullish = lastWeekTargets
+                  .filter(t => t.dominant === 'up')
+                  .map(t => ({
+                    name: getTargetName(t.target, t.target_code),
+                    count: t.up,
+                    thisCount: (() => { const w = thisWeekMap.get(t.target); return w?.dominant === 'up' ? w.up : 0; })(),
+                  }));
+                const lastBearish = lastWeekTargets
+                  .filter(t => t.dominant === 'down')
+                  .map(t => ({
+                    name: getTargetName(t.target, t.target_code),
+                    count: t.down,
+                    thisCount: (() => { const w = thisWeekMap.get(t.target); return w?.dominant === 'down' ? w.down : 0; })(),
+                  }));
+                return <LastWeekPanel lastBullish={lastBullish} lastBearish={lastBearish} />;
+              })()}
+            </div>
+
+            {/* 분석 결과 요약 테이블 */}
+            {tableRows && tableRows.length > 0 && (
+              <div className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
+                <div className="mb-4">
+                  <h3 className="text-base font-bold text-white">📋 이번 주 TOP 10 시그널</h3>
+                  <p className="text-[10px] text-gray-500 mt-0.5">전체 {reportTotal}건 · 신뢰도 → 최신순 · 상세 내용은 아래 리포트에서</p>
+                </div>
+                <PredictionTableSection rows={tableRows as TableRow[]} />
               </div>
-              <a href="/trump" className="text-xs text-orange-400 hover:text-orange-300 font-semibold">
-                보러가기 →
-              </a>
-            </div>
-          )}
+            )}
 
-        </>
-      )}
+            {/* 증권사 리포트 상세 (accordion) */}
+            {reportItems.length > 0 && (
+              <div id="reports-section" className="rounded-2xl lg:rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:p-8 mb-6">
+                <div className="mb-4">
+                  <h3 className="text-base font-bold text-white">📑 AI 분석 결과 ({reportTotal}건)</h3>
+                  <p className="text-[10px] text-gray-500 mt-0.5">증권사 리포트 분석 · 최신 10건 표시</p>
+                </div>
+                <ShowMoreReports
+                  reports={reportItems}
+                  total={reportTotal}
+                  wsMap={Object.fromEntries((wallstreet ?? []).map(w => [w.ticker, w]))}
+                />
+              </div>
+            )}
+
+            {/* 트럼프 링크 */}
+            {trumpItems.length > 0 && (
+              <div className="rounded-2xl lg:rounded-3xl border border-orange-500/20 bg-orange-500/5 p-6 lg:p-8 mb-6 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-orange-400">🏛️ 트럼프 SNS 예측 {trumpItems.length}건</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">트럼프 게시글의 시장 영향 분석</p>
+                </div>
+                <a href="/trump" className="text-xs text-orange-400 hover:text-orange-300 font-semibold">
+                  보러가기 →
+                </a>
+              </div>
+            )}
+
+          </>
+        )}
       </div>
     </div>
   );

@@ -276,25 +276,9 @@ class NewsWorker:
                                                 sub_name = {"OPENING": "개장 브리핑", "MID": "오전/장중 브리핑", "CLOSE": "마감 브리핑"}.get(data.get('subtype'), "브리핑")
                                                 title = f"{mk_name} [{sub_name}]"
                                                 category = "BRIEFING"
-                                                # 🔮 브리핑 → 단기 예측 생성 (백그라운드)
-                                                asyncio.create_task(
-                                                    generate_prediction_from_briefing(
-                                                        market=data.get('market', 'KR'),
-                                                        subtype=data.get('subtype', 'CLOSE'),
-                                                        briefing_text=summary,
-                                                    )
-                                                )
                                             elif msg_type == 'SNS_ANALYSIS':
                                                 title = f"🏛️ [트럼프 긴급 포착]"
                                                 category = "TRUMP"
-                                                # 🔮 트럼프 예측 카드 생성 (Step 2 - 분석 텍스트 기반)
-                                                asyncio.create_task(
-                                                    generate_prediction_from_trump(
-                                                        analysis_text=summary,
-                                                        post_url=data.get('url', ''),
-                                                        post_time=data.get('time', ''),
-                                                    )
-                                                )
                                             elif msg_type == 'REPORT_ANALYSIS':
                                                 mk_source = data.get('source', 'Analyst')
                                                 title = f"📑 [{mk_source} 리포트 Output]"

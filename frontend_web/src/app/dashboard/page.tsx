@@ -12,7 +12,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import OnboardingTourLoader from "@/components/OnboardingTourLoader";
 
-const CURRENT_VERSION = "v1.1.0";
+const CURRENT_VERSION = "v1.1.1";
 
 function formatKST(utcString: string | null) {
   if (!utcString) return null;

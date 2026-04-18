@@ -5,9 +5,21 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
-const CURRENT_VERSION = "v1.1.0";
+const CURRENT_VERSION = "v1.1.1";
 
 const changelog = [
+  {
+    version: "v1.1.1",
+    date: "2026.04.18",
+    label: "",
+    items: [
+      "온보딩 투어 추가",
+      "거래대금 탭 추가",
+      "대시보드 링크 텔레그램 알림 (하루 2번)",
+      "AI 분석 오류 수정 (등락률 앵커링)",
+      "VIP 입장 안내 메시지 개선",
+    ],
+  },
   {
     version: "v1.1.0",
     date: "2026.04.12",

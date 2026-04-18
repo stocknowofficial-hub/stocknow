@@ -181,8 +181,11 @@ export function PredictionTableSection({ rows }: { rows: TableRow[] }) {
                     <span className="text-[10px] text-gray-600 shrink-0 w-7 font-mono">{dateLabel}</span>
                     {/* 방향 */}
                     <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${dirBg}`}>{dirIcon}</span>
-                    {/* 종목명 — flex-1로 남은 공간 차지, 넘치면 말줄임 */}
-                    <span className="text-xs font-semibold text-gray-200 flex-1 min-w-0 truncate">{name}</span>
+                    {/* 종목명 + 티커 */}
+                    <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                      <span className="text-xs font-semibold text-gray-200 truncate">{name}</span>
+                      {r.target_code && <span className="text-[10px] text-gray-600 font-mono shrink-0">{r.target_code}</span>}
+                    </span>
                     {/* 액션 타입 — sm 이상에서만 표시 */}
                     {actionType && (
                       <span className={`text-[10px] px-2 py-0.5 rounded-md shrink-0 hidden sm:inline-block ${actionBg}`}>

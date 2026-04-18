@@ -57,6 +57,11 @@ function daysLeft(expiresAt: string): number {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function formatPrice(price: number, code: string | null): string {
   const isKr = /^\d{6}$/.test(code ?? '');
   if (isKr) return price.toLocaleString('ko-KR') + '원';
@@ -109,14 +114,20 @@ export function PredictionCard({ pred }: { pred: Prediction }) {
         </div>
         {/* 결과 or 남은 일수 */}
         {resultStyle ? (
-          <span className="text-xs font-bold shrink-0">
-            {resultStyle.icon} {resultStyle.label}
-            {pred.result_val && <span className="ml-1 text-gray-400">({pred.result_val})</span>}
-          </span>
+          <div className="flex flex-col items-end gap-0.5 shrink-0">
+            <span className="text-xs font-bold">
+              {resultStyle.icon} {resultStyle.label}
+              {pred.result_val && <span className="ml-1 text-gray-400">({pred.result_val})</span>}
+            </span>
+            {pred.result_at && (
+              <span className="text-[9px] text-gray-600">판정일: {formatDate(pred.result_at)}</span>
+            )}
+          </div>
         ) : (
-          <span className="text-[11px] text-gray-500 shrink-0">
-            D-{remaining}
-          </span>
+          <div className="flex flex-col items-end gap-0.5 shrink-0">
+            <span className="text-[11px] text-gray-500">D-{remaining}</span>
+            <span className="text-[9px] text-gray-600">만료 {formatDate(pred.expires_at)}</span>
+          </div>
         )}
       </div>
 

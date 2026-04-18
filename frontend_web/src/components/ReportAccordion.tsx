@@ -68,20 +68,35 @@ function DaysLeft({ expires }: { expires: string | null }) {
   return <span className="text-[10px] text-gray-500">D-{diff}</span>;
 }
 
-function ActionBadge({ action, target }: { action: string; target?: string }) {
+function ActionBadge({ action, target, targetCode }: { action: string; target?: string; targetCode?: string | null }) {
   const label = action.split(' · ')[0].trim();
   const reason = action.includes(' · ') ? action.slice(action.indexOf(' · ') + 3) : null;
 
+  const isBuy  = label === '매수 고려' || label === '비중 확대';
+  const isSell = label === '매도 고려' || label === '비중 축소';
+  const isWatch = label === '관망';
+
   let bg = 'bg-gray-500/20 border-white/10'; let text = 'text-gray-400';
-  if (label === '매수 고려' || label === '비중 확대') { bg = 'bg-emerald-500/10 border-emerald-500/20'; text = 'text-emerald-400'; }
-  else if (label === '매도 고려' || label === '비중 축소') { bg = 'bg-rose-500/10 border-rose-500/20'; text = 'text-rose-400'; }
-  else if (label === '관망') { bg = 'bg-amber-500/10 border-amber-500/20'; text = 'text-amber-400'; }
+  if (isBuy)   { bg = 'bg-emerald-500/10 border-emerald-500/20'; text = 'text-emerald-400'; }
+  else if (isSell)  { bg = 'bg-rose-500/10 border-rose-500/20';  text = 'text-rose-400'; }
+  else if (isWatch) { bg = 'bg-amber-500/10 border-amber-500/20'; text = 'text-amber-400'; }
+
+  const dirBadge = isBuy
+    ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">매수</span>
+    : isSell
+    ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">매도</span>
+    : isWatch
+    ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">관망</span>
+    : null;
 
   return (
-    <div className={`flex flex-col gap-0.5 px-3 py-2.5 rounded-xl border ${bg}`}>
-      <span className={`text-sm font-bold ${text}`}>
-        ⚡ {target ? `${target} ` : ''}{label}
-      </span>
+    <div className={`flex flex-col gap-1 px-3 py-2.5 rounded-xl border ${bg}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        {dirBadge}
+        {target && <span className={`text-sm font-bold ${text}`}>{target}</span>}
+        {targetCode && <span className={`text-[11px] font-mono opacity-60 ${text}`}>{targetCode}</span>}
+        <span className={`text-xs opacity-75 ${text}`}>· {label}</span>
+      </div>
       {reason && <span className={`text-[11px] ${text} opacity-70`}>{reason}</span>}
     </div>
   );
@@ -191,7 +206,7 @@ function AccordionItem({ r, wsMap }: { r: ReportItem; wsMap: Record<string, Wall
           )}
 
           {/* Action 추천 + Trade Setup */}
-          {r.action && <ActionBadge action={r.action} target={r.target || undefined} />}
+          {r.action && <ActionBadge action={r.action} target={r.target || undefined} targetCode={r.target_code} />}
           {tradeSetup && (tradeSetup.entry || tradeSetup.stop_loss || tradeSetup.target) && (
             <div className="grid grid-cols-3 gap-2 text-center">
               {tradeSetup.entry && (
