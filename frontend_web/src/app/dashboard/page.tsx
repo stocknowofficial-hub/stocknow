@@ -39,6 +39,7 @@ interface Subscription {
 
 interface UserRow {
   telegram_id: string | null;
+  onboarding_done: number | null;
 }
 
 interface ReferralCount {
@@ -62,6 +63,7 @@ export default async function DashboardPage({
   let subscription: Subscription | null = null;
   let referralCount = 0;
   let telegramLinked = false;
+  let onboardingDone = false;
   let whaleSections: Sections | null = null;
   let whaleUpdatedAt: string | null = null;
   let whaleUsSections: Sections | null = null;
@@ -83,7 +85,7 @@ export default async function DashboardPage({
           .bind(userId)
           .first<ReferralCount>(),
         db
-          .prepare("SELECT telegram_id FROM users WHERE id = ?")
+          .prepare("SELECT telegram_id, onboarding_done FROM users WHERE id = ?")
           .bind(userId)
           .first<UserRow>(),
         db
@@ -97,6 +99,7 @@ export default async function DashboardPage({
       subscription = sub;
       referralCount = referrals?.count ?? 0;
       telegramLinked = !!userRow?.telegram_id;
+      onboardingDone = !!userRow?.onboarding_done;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parse = (s: string | null) => JSON.parse(s ?? "[]") as any[];
@@ -170,7 +173,7 @@ export default async function DashboardPage({
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
-      <OnboardingTourLoader usFirst={!!(whaleUsUpdatedAt && whaleUpdatedAt ? whaleUsUpdatedAt > whaleUpdatedAt : !!whaleUsUpdatedAt)} />
+      <OnboardingTourLoader usFirst={!!(whaleUsUpdatedAt && whaleUpdatedAt ? whaleUsUpdatedAt > whaleUpdatedAt : !!whaleUsUpdatedAt)} onboardingDone={onboardingDone} />
       <div className="flex">
         <DashboardSidebar user={session.user} provider={provider} />
 
@@ -244,7 +247,7 @@ export default async function DashboardPage({
               </div>
 
               {/* Referral Card */}
-              <div className="p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
+              <div id="tour-referral-card" className="p-6 lg:p-8 rounded-2xl lg:rounded-3xl bg-white/[0.03] border border-white/10">
                 <h3 className="text-base font-bold mb-1">친구 초대 혜택</h3>
                 <p className="text-gray-400 text-xs mb-4 leading-relaxed">
                   친구 1명 초대 시 <span className="text-white font-semibold">+7일</span> · 최대 20명

@@ -324,10 +324,14 @@ class NewsWorker:
                                                 "name": title,
                                                 "summary": summary,
                                                 "sentiment": final_result.get('sentiment', 'Neutral'),
-                                                "link": final_link, 
+                                                "link": final_link,
                                                 "price": data.get('price'),
                                                 "rate": data.get('rate')
                                             }
+                                            if msg_type == 'SNS_ANALYSIS':
+                                                raw_text = data.get('text', '')
+                                                if raw_text:
+                                                    payload["original_snippet"] = raw_text[:100].strip()
 
                                             # WHALE_ALERT인 경우 type 변경
                                             if msg_type == 'WHALE_ALERT':

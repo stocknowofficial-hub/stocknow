@@ -430,12 +430,15 @@ async def broadcast_message(bot, message_data):
         elif msg_type == "SNS_SUMMARY":
             summary = message_data.get('summary', '')
             link = message_data.get('link', '')
-            
+            snippet = message_data.get('original_snippet', '')
+            ellipsis = "..." if len(snippet) >= 100 else ""
+            snippet_line = f"📝 \"{snippet}{ellipsis}\"\n------------------------------\n" if snippet else ""
+
             # VIP: Full
-            text_vip = f"{name}\n------------------------------\n{summary}\n------------------------------\n🔗 [원문 보기]({link})\n"
-            
+            text_vip = f"{name}\n------------------------------\n{snippet_line}{summary}\n------------------------------\n🔗 [원문 보기]({link})\n"
+
             # Free: Teaser (Hide Summary)
-            text_free = f"{name}\n------------------------------\n🔒 (AI 분석 내용은 Premium 전용)\n------------------------------\n🔗 [원문 보기]({link})\n{upgrade_link}"
+            text_free = f"{name}\n------------------------------\n{snippet_line}🔒 (AI 분석 내용은 Premium 전용)\n------------------------------\n🔗 [원문 보기]({link})\n{upgrade_link}"
 
         elif msg_type == "WHALE_SUMMARY":
             # 🐳 Whale Hunter Format (US)

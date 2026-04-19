@@ -262,12 +262,10 @@ def get_briefing_prompt(mode, query, today_full, ny_str=None, kr_str=None, post_
         
         [Decision Rule]
         - If purely NOISE -> OUTPUT ONLY: "SKIP"
-        - If SIGNAL -> Proceed to [Task 2]
-        
-        [Task 2: Strategic Asset Analysis]
-        Write a sharp, professional analysis in KOREAN. Use formal business language.
-        
+        - If SIGNAL -> Write the analysis below. Do NOT output "Task 1", "Task 2", "결정: SIGNAL" or any internal prompt labels. Start directly with the numbered sections.
+
         [Output Structure]
+        Write a sharp, professional analysis in KOREAN. Use formal business language.
         1. 📜 [원문 요약] (Executive Summary)
            - Summarize the factual content in 1-2 sentences maximum.
            - Just the facts, no interpretation yet.
